@@ -19,7 +19,9 @@ from math import prod
 import random
 import itertools
 
-class DiscreteFiniteProbabilityDistribution(ABC):
+# the use of ^, |, & are subject to change...
+
+class AbstractFiniteProbabilityDistribution(ABC):
     @property
     @abstractmethod
     def outcomes(self):
@@ -38,29 +40,34 @@ class DiscreteFiniteProbabilityDistribution(ABC):
         return self.pmf_dict.get(x, 0)
     def sample(self, k):
         """
-        generate a list of samples
+        generate a list of samples.
         """
         return random.choices(self.outcomes, weights=self.probabilities, k=k)
     def generate(self):
         """
-        generate a single observation
+        generate a single observation.
         """
         return self.sample(k=1)[0]
     def __mul__(self, other):
         """
         note that the _order_ of the outcomes matters.
-        If it does not matter to you, use bitwise or
+        If it does not matter to you, use bitwise or; (should probably change that to the min)
         """
         if isinstance(other, int):
             multi_outcomes = [self.outcomes] * other
             multi_probabilities = [self.probabilities] * other
             new_outcomes = [sum(x) for x in list(itertools.product(*multi_outcomes))]
             new_probs = [prod(x) for x in itertools.product(*multi_probabilities)]
-            return ListProbabilityDistribution(outcomes=new_outcomes, weights=new_probs)
+            return NumericalListProbabilityDistribution(outcomes=new_outcomes, weights=new_probs)
         else:
             new_outcomes = list(itertools.product(self.outcomes, other.outcomes))
             new_probs = [x[0]*x[1] for x in itertools.product(self.probabilities, other.probabilities)]
             return ListProbabilityDistribution(outcomes=new_outcomes, weights=new_probs)
+    def __rmul__(self, other):
+        """
+        other * rmul
+        """
+        return self.__mul__(other)
     def __pow__(self, other):
         if other<0:
             raise ValueException(f"bad power {other}")
@@ -71,10 +78,6 @@ class DiscreteFiniteProbabilityDistribution(ABC):
             new_probs = [prod(x) for x in itertools.product(*multi_probabilities)]
             return ListProbabilityDistribution(outcomes=new_outcomes, weights=new_probs)
         raise ValueException(f"bad power {other}")
-    def __add__(self, other):
-        new_outcomes = [sum(x) for x in list(itertools.product(self.outcomes, other.outcomes))]
-        new_probs = [x[0]*x[1] for x in itertools.product(self.probabilities, other.probabilities)]
-        return ListProbabilityDistribution.from_duplicated(new_outcomes, new_probs)
     def __or__(self, other):
         """
         this is a multiplication, but order does not matter, so results are sorted
@@ -83,11 +86,40 @@ class DiscreteFiniteProbabilityDistribution(ABC):
         new_probs = [x[0]*x[1] for x in itertools.product(self.probabilities, other.probabilities)]
         return ListProbabilityDistribution.from_duplicated(new_outcomes, new_probs)
     def __xor__(self, other):
+        """
+        this is the max of the tuple of two probability distributions
+        """
         new_outcomes = [max(x) for x in itertools.product(self.outcomes, other.outcomes)]
         new_probs = [x[0]*x[1] for x in itertools.product(self.probabilities, other.probabilities)]
         return ListProbabilityDistribution.from_duplicated(new_outcomes, new_probs)
 
-class UniformDiscreteFiniteProbabilityDistribution(DiscreteFiniteProbabilityDistribution):
+
+class NumericalValuedFiniteProbabilityDistributionMixin():
+    def expected_value(self, f=None):
+        """
+        Computes E[f(x)] for this x. f defaults to lambda x: x
+        """
+        if f is None:
+            f = lambda x: x
+        return sum([f(x)*p for x,p in zip(self.outcomes, self.probabilities)]) / sum(self.probabilities)
+    def variance(self):
+        """
+        Computes VAR(x) for this x. 
+        """
+        Ex = self.expected_value()
+        Ex2 = self.expected_value(f=lambda x: x**2)
+        return Ex2 - Ex**2
+    def __add__(self, other):
+        """
+        Given two numerical valued distributions, return the distribution of the sum
+        of independent realizations from the two.
+        """
+        new_outcomes = [sum(x) for x in list(itertools.product(self.outcomes, other.outcomes))]
+        new_probs = [x[0]*x[1] for x in itertools.product(self.probabilities, other.probabilities)]
+        return NumericalListProbabilityDistribution.from_duplicated(new_outcomes, new_probs)
+
+
+class UniformDiscreteFiniteProbabilityDistribution(AbstractFiniteProbabilityDistribution):
     def __init__(self, outcomes):
         self.__outcomes = outcomes
     @property
@@ -98,7 +130,7 @@ class UniformDiscreteFiniteProbabilityDistribution(DiscreteFiniteProbabilityDist
         nel = len(self.outcomes)
         return [1/nel]*nel
 
-class ListProbabilityDistribution(DiscreteFiniteProbabilityDistribution):
+class ListProbabilityDistribution(AbstractFiniteProbabilityDistribution):
     def __init__(self, outcomes, weights=None):
         """
         weights: default to equal weighting if None given.
@@ -125,8 +157,15 @@ class ListProbabilityDistribution(DiscreteFiniteProbabilityDistribution):
         for key, value in zip(outcomes, weights):
             coco.update({key:value})
         return cls(outcomes=list(coco.keys()), weights=list(coco.values()))
+    @classmethod
+    def certainty(cls, outcome):
+        return cls(outcomes=[outcome], weights=[1])
 
 
+class NumericalListProbabilityDistribution(NumericalValuedFiniteProbabilityDistributionMixin, ListProbabilityDistribution):
+    pass
+
+a1 = NumericalListProbabilityDistribution.certainty(1)
         
 fooz = ListProbabilityDistribution(['hearts','diamonds','clubs','spades'],[1/4]*4)
 
@@ -141,7 +180,7 @@ uno = fooz | fooz
 
 dummy = fooz ^ fooz
 
-class DiceProbabilityDistribution(UniformDiscreteFiniteProbabilityDistribution):
+class DiceProbabilityDistribution(NumericalValuedFiniteProbabilityDistributionMixin, UniformDiscreteFiniteProbabilityDistribution):
     def __init__(self, sides=6):
         super().__init__(list(range(sides)))
         self.__sides = sides
@@ -149,7 +188,7 @@ class DiceProbabilityDistribution(UniformDiscreteFiniteProbabilityDistribution):
     def sides(self):
         return self.__sides
 
-class UnfairDiceProbabilityDistribution(ListProbabilityDistribution):
+class UnfairDiceProbabilityDistribution(NumericalValuedFiniteProbabilityDistributionMixin, ListProbabilityDistribution):
     def __init__(self, weights):
         super().__init__(list(range(len(weights))), weights)
         self.__sides = len(weights)
@@ -184,13 +223,11 @@ weirdo = UnfairDiceProbabilityDistribution([1/2, 1/10, 1/10, 1/10, 1/10, 1/10])
 
 weighted = weirdo*weirdo
 
-# do we want a discrete probability distribution where the outcomes are numeric?
-def expected_value(probdist: DiscreteFiniteProbabilityDistribution):
-    return sum([x*p for x,p in zip(probdist.outcomes, probdist.probabilities)]) / sum(probdist.probabilities)
-
-expected_value(weirdo)
-expected_value(weirdo + weirdo)
-expected_value(weirdo + weirdo + weirdo)
+weirdo.expected_value()
+(weirdo + weirdo).expected_value()
+(weirdo + weirdo).variance()
+(weirdo + weirdo + weirdo).expected_value()
+(3*weirdo).expected_value()
 
 
 
