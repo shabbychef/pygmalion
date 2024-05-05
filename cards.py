@@ -13,9 +13,10 @@
     Comments: Steven E. Pav
 """
 
-from abc import ABC, abstractmethod
 import random
+from abc import ABC, abstractmethod
 from random import shuffle
+
 
 class AbstractCardDeck(ABC):
     @property
@@ -25,18 +26,21 @@ class AbstractCardDeck(ABC):
         return the number of cards in the deck.
         """
         pass
+
     @abstractmethod
     def shuffle(self):
         """
         shuffles the deck in place
         """
         pass
+
     @abstractmethod
     def peek(self):
         """
         looks at the top card in the deck, returning its value
         """
         pass
+
     @abstractmethod
     def draw(self, with_replacement=False):
         """
@@ -44,6 +48,7 @@ class AbstractCardDeck(ABC):
         optionally replacing it on the bottom of the deck.
         """
         pass
+
     @abstractmethod
     def merge(self, other):
         """
@@ -53,48 +58,56 @@ class AbstractCardDeck(ABC):
 
 
 class ListCardDeck(AbstractCardDeck):
-    def __init__(self,cards):
+    def __init__(self, cards):
         self.cards = cards
+
     @property
     def len(self):
         return len(self.cards)
+
     def shuffle(self):
         random.shuffle(self.cards)
+
     def peek(self):
         return self.cards[0]
+
     def draw(self, with_replacement=False):
         retv = self.cards.pop(0)
         if with_replacement:
             self.cards.append(retv)
         return retv
+
     def merge(self, other):
         self.cards.extend(other.cards)
         return self
 
+
 import itertools
 
-foo = ListCardDeck(list(itertools.product(['hearts','spades','diamonds','clubs'],range(1,14))))
+foo = ListCardDeck(
+    list(itertools.product(["hearts", "spades", "diamonds", "clubs"], range(1, 14)))
+)
 foo.peek()
 foo.shuffle()
+
 
 class FrenchCardDeck(ListCardDeck):
     def __init__(self):
         cards = list(itertools.product(FrenchCardSuit, FrenchCardRank))
         super().__init__(cards)
 
-    
-foo = FrenchCardDeck() 
-        
 
-        
+foo = FrenchCardDeck()
 
 
 from enum import Enum, IntEnum, auto
+
 
 class FrenchCardSuit(IntEnum):
     """
     Actually a French card suit
     """
+
     Spades = auto()
     Hearts = auto()
     Diamonds = auto()
@@ -105,6 +118,7 @@ class FrenchCardRank(Enum):
     """
     Do not impose an order on the ranks, as it depends on games.
     """
+
     Ace = auto()
     Two = auto()
     Three = auto()
@@ -119,21 +133,33 @@ class FrenchCardRank(Enum):
     Queen = auto()
     King = auto()
 
-FrenchCardRank.Ace  < FrenchCardRank.King
+
+FrenchCardRank.Ace < FrenchCardRank.King
 dict(FrenchCardRank)
 
 FrenchCardSuit.Spades
 
-foo = itertools.product(FrenchCardSuit.__members__.items(),FrenchCardRank.__members__.items())
+foo = itertools.product(
+    FrenchCardSuit.__members__.items(), FrenchCardRank.__members__.items()
+)
 
 
 # this doesn't work exactly
-Enum('TestFrenchCard', list(itertools.product(FrenchCardSuit.__members__.items(),FrenchCardRank.__members__.items())))
+Enum(
+    "TestFrenchCard",
+    list(
+        itertools.product(
+            FrenchCardSuit.__members__.items(), FrenchCardRank.__members__.items()
+        )
+    ),
+)
+
 
 class FrenchCard(Enum):
     """
     Do not impose an order on the ranks, as it depends on games.
     """
+
     Ace = auto()
     Two = auto()
     Three = auto()
@@ -149,5 +175,5 @@ class FrenchCard(Enum):
     King = auto()
 
 
-#for vim modeline: (do not edit)
+# for vim modeline: (do not edit)
 # vim:ts=4:sw=4:sts=4:tw=79:sta:et:ai:nu:fdm=indent:syn=python:ft=python:tag=.py_tags;:cin:fo=croql
