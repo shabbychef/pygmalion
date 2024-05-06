@@ -13,6 +13,7 @@
     Comments: Steven E. Pav
 """
 
+import copy
 import itertools
 import random
 from abc import ABC, abstractmethod
@@ -56,10 +57,11 @@ class AbstractFiniteProbabilityDistribution(ABC):
         """
         return self.sample(k=1)[0]
 
-    def __mul__(self, other):
+    def __mod__(self, other):
         """
-        note that the _order_ of the outcomes matters.
-        If it does not matter to you, use bitwise or; (should probably change that to the min)
+        This computes the 'modulo' operator, which returns two independent draws
+        from the two distributions, returning tuples.  Order matters.
+        If id(self) == id(other)??
         """
         if isinstance(other, int):
             multi_outcomes = [self.outcomes] * other
@@ -77,26 +79,10 @@ class AbstractFiniteProbabilityDistribution(ABC):
             ]
             return ListProbabilityDistribution(outcomes=new_outcomes, weights=new_probs)
 
-    def __rmul__(self, other):
-        """
-        other * rmul
-        """
-        return self.__mul__(other)
-
-    def __pow__(self, other):
-        if other < 0:
-            raise ValueException(f"bad power {other}")
-        if isinstance(other, int):
-            multi_outcomes = [self.outcomes] * other
-            multi_probabilities = [self.probabilities] * other
-            new_outcomes = list(itertools.product(*multi_outcomes))
-            new_probs = [prod(x) for x in itertools.product(*multi_probabilities)]
-            return ListProbabilityDistribution(outcomes=new_outcomes, weights=new_probs)
-        raise ValueException(f"bad power {other}")
-
     def __or__(self, other):
         """
-        this is a multiplication, but order does not matter, so results are sorted
+        this is tuple, but order does not matter, so results are sorted
+        should change so that or is max, and is min and something else is % + sorted.
         """
         new_outcomes = [
             tuple(sorted(x))
@@ -121,6 +107,14 @@ class AbstractFiniteProbabilityDistribution(ABC):
         ]
         return ListProbabilityDistribution.from_duplicated(new_outcomes, new_probs)
 
+    @abstractmethod
+    def __copy__(self):
+        pass
+
+    @abstractmethod
+    def __deepcopy__(self, memo):
+        pass
+
 
 class NumericalValuedFiniteProbabilityDistributionMixin:
     def expected_value(self, f=None):
@@ -143,19 +137,74 @@ class NumericalValuedFiniteProbabilityDistributionMixin:
 
     def __add__(self, other):
         """
-        Given two numerical valued distributions, return the distribution of the sum
-        of independent realizations from the two.
+        Given a numerical valued distribution, if you sum it with itself,
+        return twice the value of the output. Here self is determined by object id.
+
+        Otherwise, given two distinct numerical valued distributions (not the same id),
+        return the distribution of the sum of independent realizations from the two.
         """
-        new_outcomes = [
-            sum(x) for x in list(itertools.product(self.outcomes, other.outcomes))
-        ]
-        new_probs = [
-            x[0] * x[1]
-            for x in itertools.product(self.probabilities, other.probabilities)
-        ]
-        return NumericalListProbabilityDistribution.from_duplicated(
-            new_outcomes, new_probs
-        )
+        if id(self) == id(other):
+            return self.map(lambda x: 2 * x)
+        else:
+            new_outcomes = [
+                sum(x) for x in list(itertools.product(self.outcomes, other.outcomes))
+            ]
+            new_probs = [
+                x[0] * x[1]
+                for x in itertools.product(self.probabilities, other.probabilities)
+            ]
+            return NumericalListProbabilityDistribution.from_duplicated(
+                new_outcomes, new_probs
+            )
+
+    def __mul__(self, other):
+        """
+        Given a numerical valued distribution, if you take the product with a float or int,
+        you get the value scaled up by that amount.
+
+        if you compute the product with itself, you get the values squared.
+
+        if you take the product of two independent distributions, you get the distribution of their product.
+        """
+        if id(self) == id(other):
+            return self.map(lambda x: x ** 2)
+        elif isinstance(other, (int, float)):
+            return self.map(lambda x: other * x)
+        else:
+            new_outcomes = [
+                prod(x) for x in list(itertools.product(self.outcomes, other.outcomes))
+            ]
+            new_probs = [
+                x[0] * x[1]
+                for x in itertools.product(self.probabilities, other.probabilities)
+            ]
+            return NumericalListProbabilityDistribution.from_duplicated(
+                new_outcomes, new_probs
+            )
+
+    def __rmul__(self, other):
+        """
+        other * rmul
+        """
+        return self.__mul__(other)
+
+    def __pow__(self, other):
+        if id(self) == id(other):
+            return self.map(lambda x: x ** x)
+        elif isinstance(other, (int, float)):
+            return self.map(lambda x: x ** other)
+        else:
+            new_outcomes = [
+                x[0] ** x[1]
+                for x in list(itertools.product(self.outcomes, other.outcomes))
+            ]
+            new_probs = [
+                x[0] * x[1]
+                for x in itertools.product(self.probabilities, other.probabilities)
+            ]
+            return NumericalListProbabilityDistribution.from_duplicated(
+                new_outcomes, new_probs
+            )
 
 
 class UniformDiscreteFiniteProbabilityDistribution(
@@ -173,6 +222,14 @@ class UniformDiscreteFiniteProbabilityDistribution(
         nel = len(self.outcomes)
         return [1 / nel] * nel
 
+    def __copy__(self):
+        return UniformDiscreteFiniteProbabilityDistribution(self.outcomes)
+
+    def __deepcopy__(self, memo):
+        return UniformDiscreteFiniteProbabilityDistribution(
+            copy.deepcopy(self.outcomes)
+        )
+
 
 class ListProbabilityDistribution(AbstractFiniteProbabilityDistribution):
     def __init__(self, outcomes, weights=None):
@@ -184,11 +241,12 @@ class ListProbabilityDistribution(AbstractFiniteProbabilityDistribution):
             nel = len(outcomes)
             weights = [1 / nel] * nel
         else:
-            total_val = sum(weights)
-            weights = [x / total_val for x in weights]
             assert (
                 min(weights) >= 0
             ), f"expecting non-negative weights, got {min(weights)=}"
+            total_weight = sum(weights)
+            assert total_weight > 0, "expecting some positive weights, got none"
+            weights = [x / total_weight for x in weights]
         assert len(outcomes) == len(
             weights
         ), f"expecting {len(outcomes)=}=={len(weights)=}"
@@ -201,6 +259,36 @@ class ListProbabilityDistribution(AbstractFiniteProbabilityDistribution):
     @property
     def probabilities(self):
         return self.__weights
+
+    def __copy__(self):
+        return type(self)(self.outcomes, self.probabilities)
+
+    def __deepcopy__(self, memo):
+        return type(self)(
+            copy.deepcopy(self.outcomes), copy.deepcopy(self.probabilities)
+        )
+
+    def __eq__(self, other):
+        if id(self) == id(other):
+            return True
+        self_dict = self.pmf_dict
+        other_dict = other.pmf_dict
+        for key, value in self_dict.items():
+            if other_dict.get(key, 0) != value:
+                return False
+        for key, value in other_dict.items():
+            if self_dict.get(key, 0) != value:
+                return False
+        return True
+
+    def map(self, f):
+        return type(self).from_duplicated(
+            outcomes=map(f, self.outcomes), weights=self.probabilities
+        )
+
+    @classmethod
+    def from_dict(cls, pmf_dict):
+        return cls(outcomes=list(pmf_dict.keys()), weights=list(pmf_dict.values()))
 
     @classmethod
     def from_duplicated(cls, outcomes, weights):
@@ -232,6 +320,11 @@ class DiceProbabilityDistribution(
     def sides(self):
         return self.__sides
 
+    def map(self, f):
+        return NumericalListProbabilityDistribution.from_duplicated(
+            outcomes=map(f, self.outcomes), weights=self.probabilities
+        )
+
 
 class UnfairDiceProbabilityDistribution(
     NumericalValuedFiniteProbabilityDistributionMixin, ListProbabilityDistribution
@@ -244,18 +337,30 @@ class UnfairDiceProbabilityDistribution(
     def sides(self):
         return self.__sides
 
+    def map(self, f):
+        return NumericalListProbabilityDistribution.from_duplicated(
+            outcomes=map(f, self.outcomes), weights=self.probabilities
+        )
+
+
+def test_list():
+    agen = ListProbabilityDistribution(["hearts", "diamonds", "spades", "clubs"])
+    assert agen.generate() in agen.outcomes
+    for asample in agen.sample(100):
+        assert asample in agen.outcomes
+    assert agen == agen
+    bgen = copy.copy(agen)
+    assert agen == bgen
+    cgen = ListProbabilityDistribution(list(reversed(agen.outcomes)))
+    assert agen == cgen
+
 
 def test_some():
     a1 = NumericalListProbabilityDistribution.certainty(1)
     fooz = ListProbabilityDistribution(
         ["hearts", "diamonds", "clubs", "spades"], [1 / 4] * 4
     )
-    barz = fooz * fooz
-    zoop = fooz ** 2
-    zoop = fooz ** 3
-    fooz.pmf_dict
-    uno = fooz | fooz
-    dummy = fooz ^ fooz
+    barz = fooz % fooz
 
 
 def test_dice_run():
