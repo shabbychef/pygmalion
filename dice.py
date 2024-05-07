@@ -68,7 +68,7 @@ class AbstractFiniteProbabilityDistribution(ABC):
             multi_probabilities = [self.probabilities] * other
             new_outcomes = [sum(x) for x in list(itertools.product(*multi_outcomes))]
             new_probs = [prod(x) for x in itertools.product(*multi_probabilities)]
-            return NumericalListProbabilityDistribution(
+            return NumericalFiniteProbabilityDistribution(
                 outcomes=new_outcomes, weights=new_probs
             )
         else:
@@ -77,7 +77,9 @@ class AbstractFiniteProbabilityDistribution(ABC):
                 x[0] * x[1]
                 for x in itertools.product(self.probabilities, other.probabilities)
             ]
-            return ListProbabilityDistribution(outcomes=new_outcomes, weights=new_probs)
+            return FiniteProbabilityDistribution(
+                outcomes=new_outcomes, weights=new_probs
+            )
 
     def __or__(self, other):
         """
@@ -92,7 +94,7 @@ class AbstractFiniteProbabilityDistribution(ABC):
             x[0] * x[1]
             for x in itertools.product(self.probabilities, other.probabilities)
         ]
-        return ListProbabilityDistribution.from_duplicated(new_outcomes, new_probs)
+        return FiniteProbabilityDistribution.from_duplicated(new_outcomes, new_probs)
 
     def __xor__(self, other):
         """
@@ -105,7 +107,7 @@ class AbstractFiniteProbabilityDistribution(ABC):
             x[0] * x[1]
             for x in itertools.product(self.probabilities, other.probabilities)
         ]
-        return ListProbabilityDistribution.from_duplicated(new_outcomes, new_probs)
+        return FiniteProbabilityDistribution.from_duplicated(new_outcomes, new_probs)
 
     @abstractmethod
     def __copy__(self):
@@ -153,7 +155,7 @@ class NumericalValuedFiniteProbabilityDistributionMixin:
                 x[0] * x[1]
                 for x in itertools.product(self.probabilities, other.probabilities)
             ]
-            return NumericalListProbabilityDistribution.from_duplicated(
+            return NumericalFiniteProbabilityDistribution.from_duplicated(
                 new_outcomes, new_probs
             )
 
@@ -178,7 +180,7 @@ class NumericalValuedFiniteProbabilityDistributionMixin:
                 x[0] * x[1]
                 for x in itertools.product(self.probabilities, other.probabilities)
             ]
-            return NumericalListProbabilityDistribution.from_duplicated(
+            return NumericalFiniteProbabilityDistribution.from_duplicated(
                 new_outcomes, new_probs
             )
 
@@ -202,7 +204,7 @@ class NumericalValuedFiniteProbabilityDistributionMixin:
                 x[0] * x[1]
                 for x in itertools.product(self.probabilities, other.probabilities)
             ]
-            return NumericalListProbabilityDistribution.from_duplicated(
+            return NumericalFiniteProbabilityDistribution.from_duplicated(
                 new_outcomes, new_probs
             )
 
@@ -231,11 +233,13 @@ class UniformDiscreteFiniteProbabilityDistribution(
         )
 
 
-class ListProbabilityDistribution(AbstractFiniteProbabilityDistribution):
+class FiniteProbabilityDistribution(AbstractFiniteProbabilityDistribution):
     def __init__(self, outcomes, weights=None):
         """
         weights: default to equal weighting if None given.
         """
+        if outcomes is None and weights is not None:
+            outcomes = list(range(len(weights)))
         self.__outcomes = outcomes
         if weights is None:
             nel = len(outcomes)
@@ -302,62 +306,39 @@ class ListProbabilityDistribution(AbstractFiniteProbabilityDistribution):
         return cls(outcomes=[outcome], weights=[1])
 
 
-class NumericalListProbabilityDistribution(
-    NumericalValuedFiniteProbabilityDistributionMixin, ListProbabilityDistribution
+class NumericalFiniteProbabilityDistribution(
+    NumericalValuedFiniteProbabilityDistributionMixin, FiniteProbabilityDistribution
 ):
     pass
 
 
-class DiceProbabilityDistribution(
-    NumericalValuedFiniteProbabilityDistributionMixin,
-    UniformDiscreteFiniteProbabilityDistribution,
-):
-    def __init__(self, sides=6):
-        super().__init__(list(range(sides)))
-        self.__sides = sides
-
-    @property
-    def sides(self):
-        return self.__sides
-
-    def map(self, f):
-        return NumericalListProbabilityDistribution.from_duplicated(
-            outcomes=map(f, self.outcomes), weights=self.probabilities
-        )
+def DiceProbabilityDistribution(sides):
+    return NumericalFiniteProbabilityDistribution(
+        outcomes=list(range(sides)), weights=[1 / sides] * sides
+    )
 
 
-class UnfairDiceProbabilityDistribution(
-    NumericalValuedFiniteProbabilityDistributionMixin, ListProbabilityDistribution
-):
-    def __init__(self, weights):
-        super().__init__(list(range(len(weights))), weights)
-        self.__sides = len(weights)
-
-    @property
-    def sides(self):
-        return self.__sides
-
-    def map(self, f):
-        return NumericalListProbabilityDistribution.from_duplicated(
-            outcomes=map(f, self.outcomes), weights=self.probabilities
-        )
+def UnfairDiceProbabilityDistribution(weights):
+    return NumericalFiniteProbabilityDistribution(
+        outcomes=list(range(len(weights))), weights=weights
+    )
 
 
 def test_list():
-    agen = ListProbabilityDistribution(["hearts", "diamonds", "spades", "clubs"])
+    agen = FiniteProbabilityDistribution(["hearts", "diamonds", "spades", "clubs"])
     assert agen.generate() in agen.outcomes
     for asample in agen.sample(100):
         assert asample in agen.outcomes
     assert agen == agen
     bgen = copy.copy(agen)
     assert agen == bgen
-    cgen = ListProbabilityDistribution(list(reversed(agen.outcomes)))
+    cgen = FiniteProbabilityDistribution(list(reversed(agen.outcomes)))
     assert agen == cgen
 
 
 def test_some():
-    a1 = NumericalListProbabilityDistribution.certainty(1)
-    fooz = ListProbabilityDistribution(
+    a1 = NumericalFiniteProbabilityDistribution.certainty(1)
+    fooz = FiniteProbabilityDistribution(
         ["hearts", "diamonds", "clubs", "spades"], [1 / 4] * 4
     )
     barz = fooz % fooz
