@@ -16,7 +16,7 @@
 import copy
 from enum import Enum, IntEnum, auto
 
-from dice import ListProbabilityDistribution, NumericalListProbabilityDistribution
+from dice import FiniteProbabilityDistribution, NumericalFiniteProbabilityDistribution
 
 
 class PigState(IntEnum):
@@ -48,7 +48,7 @@ Roll_history = {
 
 # sum([sum(val) for val in Roll_history.values()])
 
-PigRolls = ListProbabilityDistribution.from_duplicated(
+PigRolls = FiniteProbabilityDistribution.from_duplicated(
     list(Roll_history.keys()), [sum(x) for x in Roll_history.values()]
 )
 
@@ -79,7 +79,93 @@ PayoffTable = {
 
 TwoPigRolls = PigRolls | copy.deepcopy(PigRolls)
 PigPayoff = TwoPigRolls.map(lambda x: PayoffTable.get(x, 0))
-PigPayoff = NumericalListProbabilityDistribution.from_dict(PigPayoff.pmf_dict)
+PigPayoff = NumericalFiniteProbabilityDistribution.from_dict(PigPayoff.pmf_dict)
+
+# now a mixed 'dice', which is either 'BACON', or an int value
+GamePayoff = NumericalFiniteProbabilityDistribution(
+    ["BACON"] + PigPayoff.outcomes,
+    [BACON_PROB] + [(1 - BACON_PROB) * x for x in PigPayoff.probabilities],
+)
+
+
+class PassThePigsGame:
+    def __init__(self, n_players, turn=0, game_payoff=None, winning_score=100):
+        self.__n_players = n_players
+        self.__scores = [0] * n_players
+        if game_payoff is None:
+            game_payoff = NumericalFiniteProbabilityDistribution(
+                ["BACON"] + PigPayoff.outcomes,
+                [BACON_PROB] + [(1 - BACON_PROB) * x for x in PigPayoff.probabilities],
+            )
+        self.__winning_score = winning_score
+        self.__game_payoff = game_payoff
+        self.__turn = turn
+        self.__current_tally = 0
+        self.__game_winner = None
+        self.__turn_history = []
+
+    @property
+    def n_players(self):
+        return self.__n_players
+
+    @property
+    def current_tally(self):
+        return self.__current_tally
+
+    @property
+    def scores(self):
+        return self.__scores
+
+    @property
+    def winner(self):
+        return self.__game_winner
+
+    @property
+    def turn(self):
+        return self.__turn
+
+    @property
+    def turn_history(self):
+        return self.__turn_history
+
+    def __repr__(self):
+        as_str = f"{self.scores}\n{self.__turn}'s turn; tally is {self.__current_tally}"
+        if self.__game_winner is not None:
+            as_str = f"{self.__game_winner} won\n{as_str}"
+        return as_str
+
+    def pass_the_pigs(self):
+        self.__turn_history.append((self.turn, self.current_tally))
+        self.__scores[self.__turn] += self.current_tally
+        self.__current_tally = 0
+        self.__turn = (self.__turn + 1) % self.n_players
+
+    def roll(self):
+        if self.__game_winner is None:
+            outcome = self.__game_payoff.generate()
+            if outcome == "BACON":
+                self.__current_tally = -self.__scores[self.__turn]
+                self.pass_the_pigs()
+            elif outcome == 0:
+                self.__current_tally = 0
+                self.pass_the_pigs()
+            else:
+                self.__current_tally += outcome
+                if (
+                    self.__scores[self.__turn] + self.__current_tally
+                    >= self.__winning_score
+                ):
+                    self.__game_winner = self.__turn
+                    self.pass_the_pigs()
+                    self.__turn = self.__game_winner
+
+
+startit = PassThePigsGame(n_players=4)
+startit.roll()
+startit.pass_the_pigs()
+startit.roll()
+startit.roll()
+
 
 # need a sorted product for ordered distributions...
 def test_pigroll():
@@ -88,9 +174,18 @@ def test_pigroll():
     TwoPigRolls.generate()
     TwoPigRolls.pmf_dict
 
+
 def test_pig_payoff():
     ep = PigPayoff.expected_value()
     vp = PigPayoff.variance()
+
+
+def test_pig_game():
+    startit = PassThePigsGame(n_players=2)
+    while startit.winner is None:
+        startit.pass_the_pigs()
+        startit.roll()
+        startit.roll()
 
 
 # for vim modeline: (do not edit)
