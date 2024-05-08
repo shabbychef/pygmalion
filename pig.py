@@ -14,7 +14,7 @@
 """
 
 import copy
-from enum import Enum, IntEnum, auto
+from enum import IntEnum, auto
 
 from dice import FiniteProbabilityDistribution, NumericalFiniteProbabilityDistribution
 
@@ -88,6 +88,7 @@ GamePayoff = NumericalFiniteProbabilityDistribution(
 )
 
 
+
 class PassThePigsGame:
     def __init__(self, n_players, turn=0, game_payoff=None, winning_score=100):
         self.__n_players = n_players
@@ -128,6 +129,14 @@ class PassThePigsGame:
     def turn_history(self):
         return self.__turn_history
 
+    @property
+    def has_tally(self):
+        """
+        Only True if the current player has rolled and has a tally;
+        if the last player has pigged out or made bacon, this is False.
+        """
+        return self.current_tally != 0
+
     def __repr__(self):
         as_str = f"{self.scores}\n{self.__turn}'s turn; tally is {self.__current_tally}"
         if self.__game_winner is not None:
@@ -146,9 +155,11 @@ class PassThePigsGame:
             if outcome == "BACON":
                 self.__current_tally = -self.__scores[self.__turn]
                 self.pass_the_pigs()
+                return -1
             elif outcome == 0:
                 self.__current_tally = 0
                 self.pass_the_pigs()
+                return 0
             else:
                 self.__current_tally += outcome
                 if (
@@ -158,13 +169,71 @@ class PassThePigsGame:
                     self.__game_winner = self.__turn
                     self.pass_the_pigs()
                     self.__turn = self.__game_winner
+                    return 0
+                else:
+                    return outcome
+        else:
+            return 0
 
 
-startit = PassThePigsGame(n_players=4)
-startit.roll()
-startit.pass_the_pigs()
-startit.roll()
-startit.roll()
+class PassThePigsTournament:
+    def __init__(self, bots, game_payoff=None, winning_score=100):
+        self.__bots = bots
+        self.__game_payoff = game_payoff
+        self.__winning_score = winning_score
+        self.__turn = 0
+        self.__win_history = [0] * len(bots)
+
+    @property
+    def win_history(self):
+        return self.__win_history
+
+    def play(self, reps):
+        for playnum in range(reps):
+            new_game = PassThePigsGame(
+                n_players=len(self.__bots),
+                turn=self.__turn,
+                game_payoff=self.__game_payoff,
+                winning_score=self.__winning_score,
+            )
+            while new_game.winner is None:
+                new_game.roll()
+                if new_game.has_tally:
+                    pturn = new_game.turn
+                    scores = copy.copy(new_game.scores)
+                    scores = scores[pturn:] + scores[:pturn]
+                    do_pass = self.__bots[pturn](
+                        new_game.current_tally, scores, self.__winning_score
+                    )
+                    if do_pass:
+                        new_game.pass_the_pigs()
+            self.__win_history[new_game.winner] += 1
+            self.__turn = (self.__turn + 1) % len(self.__bots)
+
+
+def run_one(n_matches=50_000):
+    fooz = PassThePigsTournament(
+        bots=[
+            lambda t, s, w: t >= 25,
+            lambda t, s, w: t >= 27,
+            lambda t, s, w: t >= 30,
+        ]
+    )
+    fooz.play(n_matches)
+    print([x / n_matches for x in fooz.win_history])
+
+
+def run_two(n_matches=10_000):
+    fooz = PassThePigsTournament(
+        bots=[
+            lambda t, s, w: t >= 25,
+            lambda t, s, w: t >= 27,
+            lambda t, s, w: t >= 30,
+            lambda t, s, w: max(s[1:]) < 75 and t >= 28,
+        ]
+    )
+    fooz.play(n_matches)
+    print([x / n_matches for x in fooz.win_history])
 
 
 # need a sorted product for ordered distributions...
