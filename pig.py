@@ -14,6 +14,7 @@
 """
 
 import copy
+import math
 from enum import IntEnum, auto
 
 from dice import FiniteProbabilityDistribution, NumericalFiniteProbabilityDistribution
@@ -175,6 +176,27 @@ class PassThePigsGame:
         else:
             return 0
 
+def normal_cdf(x, lower_tail=True):
+    retv = 0.5*(1 + math.erf(x / math.sqrt(2)))
+    if lower_tail:
+        return retv
+    else:
+        return 1 - retv
+
+
+def approximate_chi2_cdf(chi2, df, lower_tail=True):
+    """
+    Uses the approximation of Luisa Canal (2005)
+
+    """
+    adjchi = chi2 / df
+    L = adjchi**(1/6) - (1/2) * adjchi**(1/3) + (1/3)*adjchi**(1/2)
+    mu = 5/6 - (1/(9*df)) - (7/(648*df*df)) + (25/(2187*df*df*df))
+    sigma2 = (1/(18*df)) + (1/(162*df*df)) - (37 / (11664*df*df*df))
+    return normal_cdf((L - mu)/math.sqrt(sigma2),lower_tail=lower_tail)
+
+def which_max(a):
+    return max(enumerate(a), key=lambda x: x[1])[0]
 
 class PassThePigsTournament:
     def __init__(self, bots, game_payoff=None, winning_score=100):
@@ -185,13 +207,22 @@ class PassThePigsTournament:
         self.__win_history = [0] * len(bots)
 
     @property
+    def n_players(self):
+        return len(self.__bots)
+
+    @property
     def win_history(self):
         return self.__win_history
+
+    @property
+    def win_props(self):
+        total = sum(self.__win_history)
+        return [x/total for x in self.__win_history]
 
     def play(self, reps):
         for playnum in range(reps):
             new_game = PassThePigsGame(
-                n_players=len(self.__bots),
+                n_players=self.n_players,
                 turn=self.__turn,
                 game_payoff=self.__game_payoff,
                 winning_score=self.__winning_score,
@@ -209,6 +240,37 @@ class PassThePigsTournament:
                         new_game.pass_the_pigs()
             self.__win_history[new_game.winner] += 1
             self.__turn = (self.__turn + 1) % len(self.__bots)
+
+    def tournament(self, max_reps=10_000, type_I=0.05, type_II=0.20, min_reps=2_000, rep_interval=500):
+        """
+        Runs some number of rounds of tournaments, then computes a hypothesis test
+        for a fair coin. If it finds one strategy dominates the others, it squawks and
+        returns. Eventually this will be a proper sequential test.
+        """
+        found_winner = False
+        full_reps = False
+        done = False
+        winner = None
+        while not (found_winner or full_reps):
+            self.play(rep_interval)
+            observed = self.win_history
+            reps = sum(observed)
+            expected = [reps/self.n_players] * self.n_players
+            # this is twice the negative log likelihood ratio under fair coin.
+            G2 = 2 * sum([obs * math.log(obs/expy) for obs,expy in zip(observed, expected)])
+            pvalue = approximate_chi2_cdf(G2, self.n_players, lower_tail=False)
+            found_winner = (pvalue <= type_I) and (reps >= min_reps)
+            winner = which_max(observed)
+            full_reps = reps >= max_reps
+        if found_winner:
+            print(f"{winner} is a winner after {reps} reps. {pvalue=}")
+        elif full_reps:
+            print(f"no clear winner found after {reps} reps.")
+        else:
+            print("your code is broken")
+        return winner
+
+
 
 
 def run_one(n_matches=50_000):
@@ -234,6 +296,19 @@ def run_two(n_matches=10_000):
     )
     fooz.play(n_matches)
     print([x / n_matches for x in fooz.win_history])
+
+
+
+def run_three(n_matches=10_000):
+    fooz = PassThePigsTournament(
+        bots=[
+            lambda t, s, w: t >= 25,
+            lambda t, s, w: t >= 27,
+            lambda t, s, w: t >= 30,
+            lambda t, s, w: max(s[1:]) < 75 and t >= 28,
+        ]
+    )
+    winner = fooz.tournament(max_reps=n_matches)
 
 
 # need a sorted product for ordered distributions...
