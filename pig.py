@@ -187,7 +187,6 @@ def normal_cdf(x, lower_tail=True):
 def approximate_chi2_cdf(chi2, df, lower_tail=True):
     """
     Uses the approximation of Luisa Canal (2005)
-
     """
     adjchi = chi2 / df
     L = adjchi**(1/6) - (1/2) * adjchi**(1/3) + (1/3)*adjchi**(1/2)
@@ -320,8 +319,8 @@ def test_pigroll():
 
 
 def test_pig_payoff():
-    ep = PigPayoff.expected_value()
-    vp = PigPayoff.variance()
+    ep = pigpayoff.expected_value()
+    vp = pigpayoff.variance()
 
 
 def test_pig_game():
