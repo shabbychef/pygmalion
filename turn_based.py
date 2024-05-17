@@ -45,6 +45,10 @@ class AbstractTurnBasedGame(ABC):
         """advance the player's turn."""
         self.__turn = (self.__turn + 1) % self.n_players
 
+    def _retreat(self):
+        """retreat (backtrack, or negative advance) the player's turn."""
+        self.__turn = (self.__turn - 1) % self.n_players
+
     @abstractmethod
     def play(self, move):
         pass
@@ -99,6 +103,17 @@ class TicTacToeGame(AbstractTurnBasedGame):
             if not self.__winner:
                 self._advance()
 
+    def backtrack(self):
+        if len(self.__history) > 0:
+            last_turn, last_move = self.__history.pop()
+            self.__board[last_move] = " "
+            self._retreat()
+            # check for win state
+            self.__winner = self._check_win()
+            return (last_turn, last_move)
+        else:
+            return None
+
     def __repr__(self):
         reps = {"0":" O ","1":" X "," ":"   "}
         breps = [reps[x] for x in self.__board]
@@ -117,6 +132,14 @@ foo.play(0)
 print(foo)
 foo.play(1)
 print(foo)
+foo.backtrack()
+print(foo)
+foo.backtrack()
+print(foo)
+foo.backtrack()
+
+
+print(foo)
 foo.play(3)
 print(foo)
 foo.play(5)
@@ -125,6 +148,7 @@ foo.play(6)
 print(foo)
 foo.winner
 
+foo.backtrack()
 foo.play(7)
 
 
