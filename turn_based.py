@@ -202,7 +202,7 @@ class ConnectFourGame(AbstractTurnBasedGame):
         return None
 
     def play(self, move):
-        if move not in self.valid_moves:
+        if move not in self.valid_moves or move is None:
             raise InvalidMoveException
         if self.winner is None:
             rown = 0
@@ -261,26 +261,26 @@ def simple_lookahead(gameboard: ConnectFourGame):
 
 def _complex_lookahead(gameboard: ConnectFourGame, depth:int=2):
     whoami = gameboard.turn
-    vm = gameboard.valid_moves
-    if depth <= 0:
-        if gameboard.winner == whoami:
-            return (1, None)
-        elif gameboard.winner is None:
-            if len(vm):
-                # return a valid move?
-                return (0, vm[0])
-            else:
-                return (0, None)
+    if gameboard.winner == whoami:
+        return (1, None)
+    elif gameboard.winner is not None:
+        return (-1, None)
+    elif depth <= 0:
+        vm = gameboard.valid_moves
+        if len(vm):
+            # return a valid move?
+            return (0, vm[0])
         else:
-            return (-1, None)
+            return (0.2, None)
     else:
+        vm = gameboard.valid_moves
         if len(vm):
             whatifs = []
             for move in vm:
                 gameboard.play(move)
                 value, _ = _complex_lookahead(gameboard, depth-1)
                 gameboard.backtrack()
-                whatifs.append((-value + 0.1 * random.random(), move))
+                whatifs.append((-0.95*value + (0.01 * random.random()), move))
             return max(whatifs)
         else:
             return (0, None)
@@ -288,6 +288,8 @@ def _complex_lookahead(gameboard: ConnectFourGame, depth:int=2):
 def complex_lookahead(gameboard: ConnectFourGame, depth=5):
     return _complex_lookahead(gameboard, depth=depth)[1]
     
+def mid_lookahead(gameboard: ConnectFourGame, depth=3):
+    return _complex_lookahead(gameboard, depth=depth)[1]
 
 
 """
@@ -352,10 +354,13 @@ while baz.winner is None:
     baz.play(move)
     print(baz)
 
+from copy import deepcopy
+
 def playem(bots_list,turn=0):
     gameboard = tb.ConnectFourGame(n_players=len(bots_list),turn=turn)
-    while gameboard.winner is None:
-        move = bots_list[gameboard.turn](gameboard)
+    while gameboard.winner is None and len(gameboard.valid_moves) > 0:
+        print(f"the turn is for {gameboard.turn}")
+        move = bots_list[gameboard.turn](deepcopy(gameboard))
         print(f"{gameboard.turn} plays {move}")
         gameboard.play(move)
         print(gameboard)
@@ -367,12 +372,13 @@ playem([random_player, simple_lookahead])
 playem([complex_lookahead, simple_lookahead])
 playem([complex_lookahead, random_player])
 playem([complex_lookahead, complex_lookahead])
+playem([complex_lookahead, mid_lookahead, random_player])
+playem([mid_lookahead, mid_lookahead, random_player])
 
 gameboard = tb.ConnectFourGame(n_players=2,turn=0)
 complex_lookahead(gameboard)
-    return _complex_lookahead(gameboard, depth=2)[1]
     
-playem([random_player])
+# playem([random_player])
 
 """
 
