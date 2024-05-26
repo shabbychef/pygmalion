@@ -13,6 +13,7 @@
     Comments: Steven E. Pav
 """
 
+import random
 from abc import ABC, abstractmethod
 
 class AbstractTurnBasedGame(ABC):
@@ -170,6 +171,10 @@ class ConnectFourGame(AbstractTurnBasedGame):
         return self.__history
 
     @property
+    def shape(self):
+        return (self.__width, self.__height)
+
+    @property
     def n_players(self):
         return self.__n_players
 
@@ -227,10 +232,62 @@ class ConnectFourGame(AbstractTurnBasedGame):
     def __repr__(self):
         bs = ""
         for idx in range(self.__height-1,-1,-1):
-            bs += "|" + "|".join(self.__board[(self.__width*idx):(self.__width*(idx+1)-1)])
+            bs += "|" + "|".join(self.__board[(self.__width*idx):(self.__width*(idx+1))])
             bs += "|\n"
         return bs
 
+
+# can play any multiplayer game.
+def random_player(gameboard: AbstractTurnBasedGame):
+    return random.choices(gameboard.valid_moves, k=1)[0]
+
+def likes_center_player(gameboard: ConnectFourGame):
+    vm = gameboard.valid_moves
+    wid = gameboard.shape[0]
+    minv = [(abs(v-(wid-1)/2),v) for v in vm]
+    return min(minv)[1]
+
+def simple_lookahead(gameboard: ConnectFourGame):
+    whoami = gameboard.turn
+    vm = gameboard.valid_moves
+    for move in vm:
+        gameboard.play(move)
+        if gameboard.winner == whoami:
+            gameboard.backtrack()
+            return move
+        gameboard.backtrack()
+    # no winning moves.
+    return random.choices(vm, k=1)[0]
+
+def _complex_lookahead(gameboard: ConnectFourGame, depth:int=2):
+    whoami = gameboard.turn
+    vm = gameboard.valid_moves
+    if depth <= 0:
+        if gameboard.winner == whoami:
+            return (1, None)
+        elif gameboard.winner is None:
+            if len(vm):
+                # return a valid move?
+                return (0, vm[0])
+            else:
+                return (0, None)
+        else:
+            return (-1, None)
+    else:
+        if len(vm):
+            whatifs = []
+            for move in vm:
+                gameboard.play(move)
+                value, _ = _complex_lookahead(gameboard, depth-1)
+                gameboard.backtrack()
+                whatifs.append((-value + 0.1 * random.random(), move))
+            return max(whatifs)
+        else:
+            return (0, None)
+
+def complex_lookahead(gameboard: ConnectFourGame, depth=5):
+    return _complex_lookahead(gameboard, depth=depth)[1]
+    
 
 
 """
@@ -275,7 +332,47 @@ print(baz)
 baz.play(2)
 
 
+import turn_based as tb
+reload(tb)
+baz = tb.ConnectFourGame()
+while baz.winner is None:
+    move = random_player(baz)
+    print(f"{baz.turn} plays {move}")
+    baz.play(move)
+    print(baz)
 
+baz = tb.ConnectFourGame()
+while baz.winner is None:
+    move = likes_center_player(baz)
+    print(f"{baz.turn} plays {move}")
+    baz.play(move)
+    print(baz)
+    move = random_player(baz)
+    print(f"{baz.turn} plays {move}")
+    baz.play(move)
+    print(baz)
+
+def playem(bots_list,turn=0):
+    gameboard = tb.ConnectFourGame(n_players=len(bots_list),turn=turn)
+    while gameboard.winner is None:
+        move = bots_list[gameboard.turn](gameboard)
+        print(f"{gameboard.turn} plays {move}")
+        gameboard.play(move)
+        print(gameboard)
+    return gameboard.winner
+
+
+playem([random_player, random_player, likes_center_player])
+playem([random_player, simple_lookahead])
+playem([complex_lookahead, simple_lookahead])
+playem([complex_lookahead, random_player])
+playem([complex_lookahead, complex_lookahead])
+
+gameboard = tb.ConnectFourGame(n_players=2,turn=0)
+complex_lookahead(gameboard)
+    return _complex_lookahead(gameboard, depth=2)[1]
+    
+playem([random_player])
 
 """
 
