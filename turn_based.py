@@ -54,10 +54,21 @@ class AbstractTurnBasedGame(ABC):
     def play(self, move):
         pass
 
+class HistoryMixin():
+    @property
+    @abstractmethod
+    def history(self):
+        pass
+
+    @property
+    def ply(self):
+        return len(self.history)
+
+
 class InvalidMoveException(Exception):
     pass
 
-class TicTacToeGame(AbstractTurnBasedGame):
+class TicTacToeGame(HistoryMixin, AbstractTurnBasedGame):
     __win_indices = [range(0,3), range(3,6), range(6,9), range(0,9,3), range(1,9,3), range(2,9,3), range(0,9,4), range(2,7,2)]
     def __init__(self, turn=0):
         super().__init__(turn=turn)
@@ -120,7 +131,7 @@ class TicTacToeGame(AbstractTurnBasedGame):
         breps = [reps[x] for x in self.__board]
         return "|".join(breps[:3]) + "\n" + "|".join(["---"]*3) + "\n" + "|".join(breps[3:6]) + "\n" + "|".join(["---"]*3) + "\n" + "|".join(breps[6:9])
 
-class ConnectFourGame(AbstractTurnBasedGame):
+class ConnectFourGame(HistoryMixin, AbstractTurnBasedGame):
     def __init__(self, n_connect=4, n_players=2, width=7, height=6, turn=0):
         super().__init__(turn=turn)
         self.__n_players = n_players
@@ -274,6 +285,10 @@ def _complex_lookahead(gameboard: ConnectFourGame, depth:int=2):
             return (0.2, None)
     else:
         vm = gameboard.valid_moves
+        if gameboard.ply == 0:
+            # abuse symmetry
+            upto = (max(vm) + 1)//2
+            vm = [v for v in vm if v <= upto]
         if len(vm):
             whatifs = []
             for move in vm:
@@ -288,6 +303,7 @@ def _complex_lookahead(gameboard: ConnectFourGame, depth:int=2):
 def complex_lookahead(gameboard: ConnectFourGame, depth=5):
     return _complex_lookahead(gameboard, depth=depth)[1]
     
+
 def mid_lookahead(gameboard: ConnectFourGame, depth=3):
     return _complex_lookahead(gameboard, depth=depth)[1]
 
