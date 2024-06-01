@@ -16,7 +16,7 @@
 import random
 from abc import ABC, abstractmethod
 
-class AbstractTurnBasedGame(ABC):
+class AbstractSequentialGame(ABC):
     def __init__(self, turn):
         self.__turn = turn
 
@@ -39,7 +39,10 @@ class AbstractTurnBasedGame(ABC):
     @property
     @abstractmethod
     def winner(self):
-        """which player is the winner, or None if game still active."""
+        """
+        Which player is the winner, or None if game still active.
+        By assumption, if there is a winner, then that player played the last move.
+        """
         pass
 
     def _advance(self):
@@ -64,11 +67,20 @@ class HistoryMixin():
     def ply(self):
         return len(self.history)
 
+class StateMixin():
+    @property
+    @abstractmethod
+    def state_string(self):
+        """
+        A string based representation of the game, without history.
+        2FIX: should have a method to re-hydrate the game from the state_string? but without history?
+        """
+        pass
 
 class InvalidMoveException(Exception):
     pass
 
-class TicTacToeGame(HistoryMixin, AbstractTurnBasedGame):
+class TicTacToeGame(StateMixin, HistoryMixin, AbstractSequentialGame):
     __win_indices = [range(0,3), range(3,6), range(6,9), range(0,9,3), range(1,9,3), range(2,9,3), range(0,9,4), range(2,7,2)]
     def __init__(self, turn=0):
         super().__init__(turn=turn)
@@ -83,6 +95,10 @@ class TicTacToeGame(HistoryMixin, AbstractTurnBasedGame):
     @property
     def history(self):
         return self.__history
+
+    @property
+    def state_string(self):
+        return f"{self.turn}:" + ("".join(self.__board))
 
     @property
     def n_players(self):
@@ -131,7 +147,7 @@ class TicTacToeGame(HistoryMixin, AbstractTurnBasedGame):
         breps = [reps[x] for x in self.__board]
         return "|".join(breps[:3]) + "\n" + "|".join(["---"]*3) + "\n" + "|".join(breps[3:6]) + "\n" + "|".join(["---"]*3) + "\n" + "|".join(breps[6:9])
 
-class ConnectFourGame(HistoryMixin, AbstractTurnBasedGame):
+class ConnectFourGame(StateMixin, HistoryMixin, AbstractSequentialGame):
     def __init__(self, n_connect=4, n_players=2, width=7, height=6, turn=0):
         super().__init__(turn=turn)
         self.__n_players = n_players
@@ -180,6 +196,10 @@ class ConnectFourGame(HistoryMixin, AbstractTurnBasedGame):
     @property
     def history(self):
         return self.__history
+
+    @property
+    def state_string(self):
+        return f"{self.__width},{self.__height},{self.__n_connect},{self.__n_players},{self.turn}:" + ("".join(self.__board))
 
     @property
     def shape(self):
@@ -249,7 +269,7 @@ class ConnectFourGame(HistoryMixin, AbstractTurnBasedGame):
 
 
 # can play any multiplayer game.
-def random_player(gameboard: AbstractTurnBasedGame):
+def random_player(gameboard: AbstractSequentialGame):
     return random.choices(gameboard.valid_moves, k=1)[0]
 
 def likes_center_player(gameboard: ConnectFourGame):
@@ -263,19 +283,20 @@ def simple_lookahead(gameboard: ConnectFourGame):
     vm = gameboard.valid_moves
     for move in vm:
         gameboard.play(move)
-        if gameboard.winner == whoami:
+        if gameboard.winner is not None:
             gameboard.backtrack()
             return move
         gameboard.backtrack()
     # no winning moves.
     return random.choices(vm, k=1)[0]
 
-def _complex_lookahead(gameboard: ConnectFourGame, depth:int=2):
+
+# this almost works for any Sequential game with backtrack?
+def _alpha_beta_search(gameboard: ConnectFourGame, alpha:float=-1, beta:float=1, depth:int=2):
+    # this is flawed; turn should be zero if winner state is not None. Rats.
     whoami = gameboard.turn
-    if gameboard.winner == whoami:
-        return (1, None)
-    elif gameboard.winner is not None:
-        return (-1, None)
+    if gameboard.winner is not None:
+        return (-10, None)
     elif depth <= 0:
         vm = gameboard.valid_moves
         if len(vm):
@@ -289,23 +310,29 @@ def _complex_lookahead(gameboard: ConnectFourGame, depth:int=2):
             # abuse symmetry
             upto = (max(vm) + 1)//2
             vm = [v for v in vm if v <= upto]
+        random.shuffle(vm)
         if len(vm):
             whatifs = []
             for move in vm:
                 gameboard.play(move)
-                value, _ = _complex_lookahead(gameboard, depth-1)
+                theirvalue, _ = _alpha_beta_search(gameboard, alpha=-beta, beta=-alpha, depth=depth-1)
                 gameboard.backtrack()
-                whatifs.append((-0.95*value + (0.01 * random.random()), move))
+                value = -0.9*theirvalue + (0.0001 * random.random())
+                if value > beta:
+                    return (value, move)
+                else:
+                    alpha = max(alpha, value)
+                whatifs.append((value, move))
             return max(whatifs)
         else:
             return (0, None)
 
-def complex_lookahead(gameboard: ConnectFourGame, depth=5):
-    return _complex_lookahead(gameboard, depth=depth)[1]
-    
+def complex_lookahead(gameboard: ConnectFourGame, depth=9):
+    return _alpha_beta_search(gameboard, depth=depth)[1]
 
-def mid_lookahead(gameboard: ConnectFourGame, depth=3):
-    return _complex_lookahead(gameboard, depth=depth)[1]
+
+def mid_lookahead(gameboard: ConnectFourGame, depth=5):
+    return _alpha_beta_search(gameboard, depth=depth)[1]
 
 
 """
@@ -395,6 +422,18 @@ gameboard = tb.ConnectFourGame(n_players=2,turn=0)
 complex_lookahead(gameboard)
     
 # playem([random_player])
+gameboard = tb.ConnectFourGame(n_players=2,turn=0)
+gameboard.play(0)
+gameboard.play(1)
+gameboard.play(2)
+gameboard.play(1)
+gameboard.play(3)
+gameboard.play(1)
+gameboard.play(4)
+print(gameboard)
+_alpha_beta_search(gameboard)
+
+complex_lookahead(gameboard)
 
 """
 
