@@ -327,6 +327,51 @@ def _alpha_beta_search(gameboard: ConnectFourGame, alpha:float=-1, beta:float=1,
         else:
             return (0, None)
 
+# this almost works for any Sequential game with backtrack?
+def _alpha_beta_search(gameboard: ConnectFourGame, alpha:float=-1, beta:float=1, depth:int=2, memo_pad=None):
+    memo_pad = memo_pad or {}
+    game_key = gameboard.state_string
+    if game_key in memo_pad:
+        return memo_pad[game_key]
+    
+    if gameboard.winner is not None:
+        memo_pad[game_key] = (-10, None)
+        return (-10, None)
+    elif depth <= 0:
+        vm = gameboard.valid_moves
+        if len(vm):
+            # return a valid move?
+            memo_pad[game_key] = (0, vm[0])
+            return (0, vm[0])
+        else:
+            memo_pad[game_key] = (0.2, None)
+            return (0.2, None)
+    else:
+        vm = gameboard.valid_moves
+        if gameboard.ply == 0:
+            # abuse symmetry
+            upto = (max(vm) + 1)//2
+            vm = [v for v in vm if v <= upto]
+        random.shuffle(vm)
+        if len(vm):
+            whatifs = []
+            for move in vm:
+                gameboard.play(move)
+                theirvalue, _ = _alpha_beta_search(gameboard, alpha=-beta, beta=-alpha, depth=depth-1, memo_pad=memo_pad)
+                gameboard.backtrack()
+                value = -0.9*theirvalue + (0.0001 * random.random())
+                if value > beta:
+                    memo_pad[game_key] = (value, move)
+                    return (value, move)
+                else:
+                    alpha = max(alpha, value)
+                whatifs.append((value, move))
+            memo_pad[game_key] = max(whatifs)
+            return max(whatifs)
+        else:
+            memo_pad[game_key] = (0, None)
+            return (0, None)
+
 def complex_lookahead(gameboard: ConnectFourGame, depth=9):
     return _alpha_beta_search(gameboard, depth=depth)[1]
 
