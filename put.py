@@ -262,9 +262,7 @@ def first_trick_follower_decision(firf=None):
         firf = first_trick_follower_value()
     firfd = {}
     for myun1, myun2, myun3, thpl1 in itertools.product(range(13), repeat=4):
-        if myun1 < myun2:
-            continue
-        if myun2 < myun3:
+        if (myun1 < myun2) or (myun2 < myun3):
             continue
         # value from playing 1, 2 or 3
         val1 = firf[(myun2, myun3, myun1, thpl1)]
@@ -305,18 +303,63 @@ def first_trick_leader_value(firfd=None, secld=None, secfd=None):
         for thun1, thun2, thun3, wt in urn_perm(aco, 3):
             if wt <= 0:
                 continue
-            # figure out what they would play.
-            breakpoint()
+            sord = sorted([thun1, thun2, thun3], reverse=True)
+            _, thpl1 = firfd[(*sord, mypl1)]
+            first_trick = _score_trick(mypl1, thpl1)
+            # get their unplayed cards.
+            if thpl1 == thun1:
+                threm1, threm2 = (max(thun2, thun3), min(thun2, thun3))
+            elif thpl1 == thun2:
+                threm1, threm2 = (max(thun1, thun3), min(thun1, thun3))
+            else:
+                threm1, threm2 = (max(thun1, thun2), min(thun1, thun2))
+            # depending on who wins first trick we have different leader/follower in second.
+            if first_trick >= 0:
+                # win or tie, I lead again
+                _, mypl2 = secld[(myun1, myun2, mypl1, thpl1)]
+                # their response is:
+                _, thpl2 = secfd[(threm1, threm2, thpl1, mypl1, mypl2)]
+            else:
+                # they lead.
+                _, thpl2 = secld[(threm1, threm2, thpl1, mypl1)]
+                # my response should be
+                _, mypl2 = secfd[(myun1, myun2, mypl1, thpl1, thpl2)]
+                pass
             mypl3 = myun1 if mypl2 == myun2 else myun2
-            thpl3 = thun1 if thpl2 == thun2 else thun2
+            thpl3 = threm1 if thpl2 == threm2 else threm2
             second_trick = _score_trick(mypl2, thpl2)
             third_trick = _score_trick(mypl3, thpl3)
             numr += wt * _score_match(first_trick, second_trick, third_trick)
             deno += wt
-
         firl[(myun1, myun2, mypl1)] = numr / deno
     return firl
 
+# now the first trick leader decision.
+def first_trick_leader_decision(firl=None):
+    """
+    computes a dict which is keyed by [(unplayed1, unplayed2, unplayed3)] with value
+    the conditional expected match value from 'my' POV of following in the first trick with myplayed1, and the optimal move.
+    the expected value is _conditional_ on those cards having been played, and everyone playing the optimal
+    decisions.
+    By assumption unplayed1 >= unplayed2 >= unplayed3
+    """
+    if firl is None:
+        firl = first_trick_leader_value()
+    firld = {}
+    for myun1, myun2, myun3 in itertools.product(range(13), repeat=3):
+        if (myun1 < myun2) or (myun2 < myun3):
+            continue
+        # value from playing 1, 2 or 3
+        val1 = firl[(myun2, myun3, myun1)]
+        val2 = firl[(myun1, myun3, myun2)]
+        val3 = firl[(myun1, myun2, myun3)]
+        firld[(myun1, myun2, myun3)] = max([(val1, myun1), (val2, myun2), (val3, myun3)])
+    return firld
+
+firl = first_trick_leader_value(firfd, secld, secfd)
+
+# now the first trick leader value.
+firld = first_trick_leader_decision(firl)
 
 #for vim modeline: (do not edit)
 # vim:ts=4:sw=4:sts=4:tw=79:sta:et:ai:nu:fdm=indent:syn=python:ft=python:tag=.py_tags;:cin:fo=croql
