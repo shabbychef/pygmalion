@@ -363,5 +363,80 @@ firld = first_trick_leader_decision(short_deck, firl)
 # now the first trick leader value.
 firld = first_trick_leader_decision(weird_deck)
 
+class PutRules():
+    def __init__(self, deck, joker_func):
+        self.__deck = deck
+        self.__joker_func = joker_func
+    @staticmethod
+    def _score_trick(play1, play2):
+        """
+        +/-1 or 0 from player 1's perspective.
+        """
+        return 1 if play1 > play2 else (-1 if play1 < play2 else 0)
+    @staticmethod
+    def _score_match(trick1, trick2, trick3, joker_1=False, joker_2=False):
+        """
+        the trick scores are from player 1's perspective.
+        +1 if player 1 wins,
+         0 if a tie
+        -1 if player 2 wins.
+        aggregate them to a match win/loss from player 1's perspective.
+
+        Also accepts Booleans for whether player 1 or player 2 played Joker cards, or both.
+        In the case of a joker played, the side that played a joker will only win on
+        2 wins and a tie or 2 wins and a loss.
+        """
+        stricks = sorted([trick1, trick2, trick3])
+        if joker_1 and joker_2:
+            # no possibility of a 3 win condition if both played jokers:
+            # either they played simultaneously and so there is a tie,
+            # or each player won 1 trick with their joker.
+            if stricks[0] <= 0 and stricks[1] > 0:
+                return 1
+            elif stricks[1] < 0 and stricks[2] >= 0:
+                return -1
+            else:
+                return 0
+        elif joker_1:
+            if stricks[0] > 0:
+                # won all three and thus lost
+                return -1
+            elif stricks[0] <= 0 and stricks[1] > 0:
+                return 1
+            elif stricks[1] < 0:
+                return -1
+            else:
+                return 0
+        elif joker_2:
+            if stricks[2] < 0:
+                # won all three and thus lost
+                return 1
+            elif stricks[2] >= 0 and stricks[1] < 0:
+                return -1
+            elif stricks[1] > 0:
+                return 1
+            else:
+                return 0
+        else:
+            if stricks[1] > 0:
+                return 1
+            elif stricks[1] < 0:
+                return -1
+            else:
+                return 0
+    def _score_from(self, my1, my2, my3, th1, th2, th3):
+        """
+        determine if jokers were played, score each trick and return the match score
+        """
+        joker_1 = self.__joker_func(my1) or self.__joker_func(my2) or self.__joker_func(my3) 
+        joker_2 = self.__joker_func(th1) or self.__joker_func(th2) or self.__joker_func(th3) 
+        trick1 = _score_trick(my1, th1)
+        trick2 = _score_trick(my2, th2)
+        trick3 = _score_trick(my3, th3)
+        return _score_match(trick1, trick2, trick3, joker_1=joker_1, joker_2=joker_2)
+
+# metnal note: used @cached_property to compute an instance property only once.
+# neat trick.
+
 #for vim modeline: (do not edit)
 # vim:ts=4:sw=4:sts=4:tw=79:sta:et:ai:nu:fdm=indent:syn=python:ft=python:tag=.py_tags;:cin:fo=croql
