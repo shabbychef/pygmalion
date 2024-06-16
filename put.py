@@ -35,36 +35,56 @@ def _score_trick(play1, play2):
     """
     return 1 if play1 > play2 else (-1 if play1 < play2 else 0)
 
-def _score_match(trick1, trick2, trick3):
+def _score_match(trick1, trick2, trick3, joker_1=False, joker_2=False):
     """
-    the trick scores are from player 1's perspective; 
-    sum them to a match win/loss from player 1's perspective.
+    the trick scores are from player 1's perspective.
+    +1 if player 1 wins,
+     0 if a tie
+    -1 if player 2 wins.
+    aggregate them to a match win/loss from player 1's perspective.
+
+    Also accepts Booleans for whether player 1 or player 2 played Joker cards, or both.
+    In the case of a joker played, the side that played a joker will only win on
+    2 wins and a tie or 2 wins and a loss.
     """
-    if trick1 > 0:
-        if max(trick2, trick3) > 0:
+    stricks = sorted([trick1, trick2, trick3])
+    if joker_1 and joker_2:
+        # no possibility of a 3 win condition if both played jokers:
+        # either they played simultaneously and so there is a tie,
+        # or each player won 1 trick with their joker.
+        if stricks[0] <= 0 and stricks[1] > 0:
             return 1
-        elif max(trick2, trick3) < 0:
+        elif stricks[1] < 0 and stricks[2] >= 0:
             return -1
         else:
             return 0
-    elif trick1 < 0:
-        if min(trick2, trick3) < 0:
+    elif joker_1:
+        if stricks[0] > 0:
+            # won all three and thus lost
             return -1
-        elif min(trick2, trick3) > 0:
+        elif stricks[0] <= 0 and stricks[1] > 0:
+            return 1
+        elif stricks[1] < 0:
+            return -1
+        else:
+            return 0
+    elif joker_2:
+        if stricks[2] < 0:
+            # won all three and thus lost
+            return 1
+        elif stricks[2] >= 0 and stricks[1] < 0:
+            return -1
+        elif stricks[1] > 0:
             return 1
         else:
             return 0
     else:
-        if min(trick2, trick3) > 0:
+        if stricks[1] > 0:
             return 1
-        elif max(trick2, trick3) < 0:
+        elif stricks[1] < 0:
             return -1
         else:
             return 0
-
-def _score_match_from(mypl1, mypl2, mypl3, thpl1, thpl2, thpl3):
-    return _score_match(_score_trick(mypl1, thpl1), _score_trick(mypl2, thpl2), _score_trick(mypl3, thpl3))
-
 
 def second_trick_follower_value(deck: Urn):
     """
@@ -109,9 +129,15 @@ master_deck = Urn(Counter({k:4 for k in range(13)}) + Counter({13:2}))
 secf = second_trick_follower_value(deck=master_deck)
 secfd = second_trick_follower_decision(deck=master_deck,secf)
 
+
 short_deck = Urn(Counter({k:4 for k in range(5)}))
 secf = second_trick_follower_value(short_deck)
 secfd = second_trick_follower_decision(short_deck,secf)
+
+# 2 jokers as "50", 12 3,2,Ace, 12 face cards ("10"), 12 789, and 12 456.
+weird_deck = Urn(Counter({50:2, 32:12, 10:12, 7: 12, 4:12}))
+secf = second_trick_follower_value(weird_deck)
+secfd = second_trick_follower_decision(weird_deck,secf)
 
 
 def second_trick_leader_value(deck:Urn, secfd=None):
@@ -333,6 +359,9 @@ firl = first_trick_leader_value(short_deck, firfd, secld, secfd)
 
 # now the first trick leader value.
 firld = first_trick_leader_decision(short_deck, firl)
+
+# now the first trick leader value.
+firld = first_trick_leader_decision(weird_deck)
 
 #for vim modeline: (do not edit)
 # vim:ts=4:sw=4:sts=4:tw=79:sta:et:ai:nu:fdm=indent:syn=python:ft=python:tag=.py_tags;:cin:fo=croql
