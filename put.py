@@ -30,6 +30,7 @@ p2 is the unconditional probability of a tie.
 from functools import cached_property
 
 from urn import Urn
+from collections import Counter
 
 def _score_trick(play1, play2):
     """
@@ -433,20 +434,20 @@ class PutRules():
                 return -1
             else:
                 return 0
-    def score_from(self, my1, my2, my3, th1, th2, th3):
+    def score_from(self, pair1, pair2, pair3):
         """
         determine if jokers were played, score each trick and return the match score
         """
-        joker_1 = self.__joker_func(my1) or self.__joker_func(my2) or self.__joker_func(my3) 
-        joker_2 = self.__joker_func(th1) or self.__joker_func(th2) or self.__joker_func(th3) 
-        trick1 = self.score_trick(my1, th1)
-        trick2 = self.score_trick(my2, th2)
-        trick3 = self.score_trick(my3, th3)
+        joker_1 = self.__joker_func(pair1[0]) or self.__joker_func(pair2[0]) or self.__joker_func(pair3[0])
+        joker_2 = self.__joker_func(pair1[1]) or self.__joker_func(pair2[1]) or self.__joker_func(pair3[1])
+        trick1 = self.score_trick(pair1[0], pair1[1])
+        trick2 = self.score_trick(pair2[0], pair2[1])
+        trick3 = self.score_trick(pair3[0], pair3[1])
         return self.score_match(trick1, trick2, trick3, joker_1=joker_1, joker_2=joker_2)
 
 short_deck = Urn(Counter({k:4 for k in range(5)}))
 pr = PutRules(deck=short_deck, joker_func=lambda x:x==4)
-pr.score_from(2, 2, 1, 0, 0, 0)
+pr.score_from((2, 0), (1, 0), (0, 0))
 
 
 class PutOptimalStrategy():
@@ -474,7 +475,7 @@ class PutOptimalStrategy():
             deno = 0
             numr = 0
             for thun1, wt, _ in tail_urn.perm_k(k=1):
-                numr += wt * self.__rules.score_from(mypl1, mypl2, myun1, thpl1, thpl2, thun1)
+                numr += wt * self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (myun1, thun1))
                 deno += wt
             secf[(myun1, mypl1, mypl2, thpl1, thpl2)] = numr / deno
         return secf
@@ -496,7 +497,7 @@ class PutOptimalStrategy():
             if val1 is None:
                 continue
             val2 = secf.get((myun1, mypl1, myun2, thpl1, thpl2))
-            secfd[(myun1, myun2, mypl1, thpl1, thpl2)] = _put_best([(val1, myun1), (val2, myun2)])
+            secfd[(myun1, myun2, mypl1, thpl1, thpl2)] = self._put_best([(val1, myun1), (val2, myun2)])
         return secfd
     @cached_property
     def second_trick_leader_value(self):
@@ -522,7 +523,7 @@ class PutOptimalStrategy():
                 # figure out what they follow with:
                 _, thpl2 = secfd[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1, mypl2)]
                 thpl3 = thun2 if thpl2==thun1 else thun1
-                numr += wt * self.__rules.score_from(mypl1, mypl2, myun1, thpl1, thpl2, thpl3)
+                numr += wt * self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (myun1, thpl3))
                 deno += wt
             secl[(myun1, mypl1, mypl2, thpl1)] = numr / deno
         return secl
@@ -548,7 +549,7 @@ class PutOptimalStrategy():
             if val1 is None:
                 continue
             val2 = secl.get((myun1, mypl1, myun2, thpl1))
-            secld[(myun1, myun2, mypl1, thpl1)] = _put_best([(val1, myun1), (val2, myun2)])
+            secld[(myun1, myun2, mypl1, thpl1)] = self._put_best([(val1, myun1), (val2, myun2)])
         return secld
     @cached_property
     def first_trick_follower_value(self):
@@ -587,7 +588,7 @@ class PutOptimalStrategy():
                     _, mypl2 = secfd[(max(myun1, myun2), min(myun1, myun2), mypl1, thpl1, thpl2)]
                 mypl3 = myun1 if mypl2 == myun2 else myun2
                 thpl3 = thun1 if thpl2 == thun2 else thun2
-                numr += wt * self.__rules.score_from(mypl1, mypl2, mypl3, thpl1, thpl2, thpl3)
+                numr += wt * self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (mypl3, thpl3))
                 deno += wt
             firf[(myun1, myun2, mypl1, thpl1)] = numr / deno
         return firf
@@ -610,7 +611,7 @@ class PutOptimalStrategy():
             val1 = firf[(myun2, myun3, myun1, thpl1)]
             val2 = firf[(myun1, myun3, myun2, thpl1)]
             val3 = firf[(myun1, myun2, myun3, thpl1)]
-            firfd[(myun1, myun2, myun3, thpl1)] = _put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
+            firfd[(myun1, myun2, myun3, thpl1)] = self._put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
         return firfd
     @cached_property
     def first_trick_leader_value(self):
@@ -659,7 +660,7 @@ class PutOptimalStrategy():
                     pass
                 mypl3 = myun1 if mypl2 == myun2 else myun2
                 thpl3 = threm1 if thpl2 == threm2 else threm2
-                numr += wt * self.__rules.score_from(mypl1, mypl2, mypl3, thpl1, thpl2, thpl3)
+                numr += wt * self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (mypl3, thpl3))
                 deno += wt
             firl[(myun1, myun2, mypl1)] = numr / deno
         return firl
@@ -682,7 +683,7 @@ class PutOptimalStrategy():
             val1 = firl[(myun2, myun3, myun1)]
             val2 = firl[(myun1, myun3, myun2)]
             val3 = firl[(myun1, myun2, myun3)]
-            firld[(myun1, myun2, myun3)] = _put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
+            firld[(myun1, myun2, myun3)] = self._put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
         return firld
 
 short_deck = Urn(Counter({k:4 for k in range(5)}))
@@ -690,6 +691,54 @@ pr = PutRules(deck=short_deck, joker_func=lambda x:x==4)
 
 goo = PutOptimalStrategy(pr)
 zedy = goo.first_trick_leader_decision
+
+dum_deck = Urn(Counter({k:4 for k in range(7)}))
+pr = PutRules(deck=dum_deck, joker_func=lambda x:False)
+goo = PutOptimalStrategy(pr)
+zedy = goo.first_trick_leader_decision
+
+from enum import Enum, IntEnum, auto
+
+from functools import total_ordering
+
+# enum with ordering. See also Enum.OrderedEnum
+# https://stackoverflow.com/a/39269589/164611
+class PutCardOrder(Enum):
+    Four = 0
+    Five = 1
+    Six = 2
+    Seven = 3
+    Eight = 4
+    Nine = 5
+    Ten = 6
+    Jack = 7
+    Queen = 8
+    King = 9
+    Ace = 10
+    Two = 11
+    Three = 12
+    Joker = 13
+    def __lt__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value < other.value
+        return NotImplemented
+    
+put_deck = Urn(Counter({k:(4 if k != PutCardOrder.Joker else 2) for k in PutCardOrder}))
+put_short_deck = Urn(Counter({k:(4 if k != PutCardOrder.Joker else 0) for k in PutCardOrder}))
+pr = PutRules(deck=put_short_deck, joker_func=lambda x:x==PutCardOrder.Joker)
+goo = PutOptimalStrategy(pr)
+zedy = goo.first_trick_leader_decision
+
+
+
+# suppose you compute e = pwin - ploss
+# can you recover pwin? does not seem like it.
+
+from turn_based import StateMixin, HistoryMixin, AbstractSequentialGame
+# class PutGame(StateMixin, HistoryMixin, AbstractSequentialGame):
+
+
+
 
 #for vim modeline: (do not edit)
 # vim:ts=4:sw=4:sts=4:tw=79:sta:et:ai:nu:fdm=indent:syn=python:ft=python:tag=.py_tags;:cin:fo=croql
