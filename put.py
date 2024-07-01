@@ -27,6 +27,8 @@ where p1 is the unconditional probability of wining outright from a given positi
 p2 is the unconditional probability of a tie.
 """
 
+from functools import cached_property
+
 from urn import Urn
 
 def _score_trick(play1, play2):
@@ -363,18 +365,25 @@ firld = first_trick_leader_decision(short_deck, firl)
 # now the first trick leader value.
 firld = first_trick_leader_decision(weird_deck)
 
+
+
+from copy import copy
+
 class PutRules():
     def __init__(self, deck, joker_func):
         self.__deck = deck
         self.__joker_func = joker_func
+    @property
+    def deck(self):
+        return copy(self.__deck)
     @staticmethod
-    def _score_trick(play1, play2):
+    def score_trick(play1, play2):
         """
         +/-1 or 0 from player 1's perspective.
         """
         return 1 if play1 > play2 else (-1 if play1 < play2 else 0)
     @staticmethod
-    def _score_match(trick1, trick2, trick3, joker_1=False, joker_2=False):
+    def score_match(trick1, trick2, trick3, joker_1=False, joker_2=False):
         """
         the trick scores are from player 1's perspective.
         +1 if player 1 wins,
@@ -424,19 +433,263 @@ class PutRules():
                 return -1
             else:
                 return 0
-    def _score_from(self, my1, my2, my3, th1, th2, th3):
+    def score_from(self, my1, my2, my3, th1, th2, th3):
         """
         determine if jokers were played, score each trick and return the match score
         """
         joker_1 = self.__joker_func(my1) or self.__joker_func(my2) or self.__joker_func(my3) 
         joker_2 = self.__joker_func(th1) or self.__joker_func(th2) or self.__joker_func(th3) 
-        trick1 = _score_trick(my1, th1)
-        trick2 = _score_trick(my2, th2)
-        trick3 = _score_trick(my3, th3)
-        return _score_match(trick1, trick2, trick3, joker_1=joker_1, joker_2=joker_2)
+        trick1 = self.score_trick(my1, th1)
+        trick2 = self.score_trick(my2, th2)
+        trick3 = self.score_trick(my3, th3)
+        return self.score_match(trick1, trick2, trick3, joker_1=joker_1, joker_2=joker_2)
 
-# metnal note: used @cached_property to compute an instance property only once.
-# neat trick.
+short_deck = Urn(Counter({k:4 for k in range(5)}))
+pr = PutRules(deck=short_deck, joker_func=lambda x:x==4)
+pr.score_from(2, 2, 1, 0, 0, 0)
+
+
+class PutOptimalStrategy():
+    def __init__(self, rules):
+        self.__rules = rules
+    @staticmethod
+    def _put_best(alist):
+        """
+        Given a list consisting of tuples of the form (valuation, card),
+        returns the 'maximal' tuple of the list, where the sort is in 
+        ascending valuation, but descending card value.
+        """
+        # we cannot negate cards but we can negate values
+        return min(alist, key=lambda x: (-x[0], x[1]))
+    @cached_property
+    def second_trick_follower_value(self):
+        """
+        computes a dict which is keyed by [(unplayed1, myplayed1, myplayed2, theirplayed1, theirplayed2)] with value
+        the conditional expected match value from 'my' POV.
+        the expected value is _conditional_ on those cards having been played.
+        """
+        secf = {}
+        deck = self.__rules.deck
+        for myun1, mypl1, mypl2, thpl1, thpl2, ignore_wt, tail_urn in deck.perm_k(k=5):
+            deno = 0
+            numr = 0
+            for thun1, wt, _ in tail_urn.perm_k(k=1):
+                numr += wt * self.__rules.score_from(mypl1, mypl2, myun1, thpl1, thpl2, thun1)
+                deno += wt
+            secf[(myun1, mypl1, mypl2, thpl1, thpl2)] = numr / deno
+        return secf
+    @cached_property
+    def second_trick_follower_decision(self):
+        """
+        computes a dict which is keyed by [(unplayed1, unplayed2, myplayed1, theirplayed1, theirplayed2)] with value
+        the optimal conditional expected match value from 'my' POV, and the card to play from my two unplayed cards.
+        by convention unplayed1 >= unplayed2
+        the expected value is _conditional_ on those cards having been played.
+        """
+        secf = self.second_trick_follower_value
+        secfd = {}
+        deck = self.__rules.deck
+        for myun1, myun2, mypl1, thpl1, thpl2, ignore_wt, tail_urn in deck.perm_k(k=5):
+            if myun1 < myun2:
+                continue
+            val1 = secf.get((myun2, mypl1, myun1, thpl1, thpl2), None)
+            if val1 is None:
+                continue
+            val2 = secf.get((myun1, mypl1, myun2, thpl1, thpl2))
+            secfd[(myun1, myun2, mypl1, thpl1, thpl2)] = _put_best([(val1, myun1), (val2, myun2)])
+        return secfd
+    @cached_property
+    def second_trick_leader_value(self):
+        """
+        computes a dict which is keyed by [(unplayed1, myplayed1, myplayed2, theirplayed1)] with value
+        the conditional expected match value from 'my' POV of leading with myplayed2 in the second
+        trick. 
+        the expected value is _conditional_ on those cards having been played, and on the opponent
+        playing the optimal follow decision.
+        By assumption since I am leading in the second trick, myplayed1 >= theirplayed1.
+        """
+        secfd = self.second_trick_follower_decision
+        secl = {}
+        deck = self.__rules.deck
+        for myun1, mypl1, mypl2, thpl1, ignore_wt, tail_urn in deck.perm_k(k=4):
+            if mypl1 < thpl1:
+                continue
+            numr = 0
+            deno = 0
+            for thun1, thun2, wt, _ in tail_urn.perm_k(k=2):
+                if wt <= 0:
+                    continue
+                # figure out what they follow with:
+                _, thpl2 = secfd[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1, mypl2)]
+                thpl3 = thun2 if thpl2==thun1 else thun1
+                numr += wt * self.__rules.score_from(mypl1, mypl2, myun1, thpl1, thpl2, thpl3)
+                deno += wt
+            secl[(myun1, mypl1, mypl2, thpl1)] = numr / deno
+        return secl
+    @cached_property
+    def second_trick_leader_decision(self):
+        """
+        computes a dict which is keyed by [(unplayed1, unplayed2, myplayed1, theirplayed1)] with value
+        the conditional expected match value from 'my' POV, and the optimal card to lead with in the second trick.
+        the expected value is _conditional_ on those cards having been played, and on the opponent
+        playing the optimal follow decision.
+        By assumption since I am leading in the second trick, myplayed1 >= theirplayed1.
+        We also assume unplayed1 >= unplayed2
+        """
+        secl = self.second_trick_leader_value
+        secld = {}
+        deck = self.__rules.deck
+        for myun1, myun2, mypl1, thpl1, _, _ in deck.perm_k(k=4):
+            if myun1 < myun2:
+                continue
+            if mypl1 < thpl1:
+                continue
+            val1 = secl.get((myun2, mypl1, myun1, thpl1), None)
+            if val1 is None:
+                continue
+            val2 = secl.get((myun1, mypl1, myun2, thpl1))
+            secld[(myun1, myun2, mypl1, thpl1)] = _put_best([(val1, myun1), (val2, myun2)])
+        return secld
+    @cached_property
+    def first_trick_follower_value(self):
+        """
+        computes a dict which is keyed by [(unplayed1, unplayed2, myplayed1, theirplayed1)] with value
+        the conditional expected match value from 'my' POV of following in the first trick with myplayed1.
+        the expected value is _conditional_ on those cards having been played, and everyone playing the optimal
+        decisions.
+        By assumption unplayed1 >= unplayed2
+        """
+        secld = self.second_trick_leader_decision
+        secfd = self.second_trick_follower_decision
+        firf = {}
+        deck = self.__rules.deck
+        for myun1, myun2, mypl1, thpl1, ignore_wt, tail_urn in deck.perm_k(k=4):
+            if myun1 < myun2:
+                continue
+            numr = 0
+            deno = 0
+            first_trick = self.__rules.score_trick(mypl1, thpl1)
+            for thun1, thun2, wt, _ in tail_urn.perm_k(k=2):
+                if wt <= 0:
+                    continue
+                if first_trick > 0:
+                    # we lead in the second trick
+                    # what should we lead with?
+                    _, mypl2 = secld[(max(myun1, myun2), min(myun1, myun2), mypl1, thpl1)]
+                    # what should they follow in the second trick with?
+                    _, thpl2 = secfd[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1, mypl2)]
+                else:
+                    # first trick we tied or lost after following, so we follow
+                    # in the second.
+                    # figure out what they would lead with
+                    _, thpl2 = secld[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1)]
+                    # what should we follow with in the second trick?
+                    _, mypl2 = secfd[(max(myun1, myun2), min(myun1, myun2), mypl1, thpl1, thpl2)]
+                mypl3 = myun1 if mypl2 == myun2 else myun2
+                thpl3 = thun1 if thpl2 == thun2 else thun2
+                numr += wt * self.__rules.score_from(mypl1, mypl2, mypl3, thpl1, thpl2, thpl3)
+                deno += wt
+            firf[(myun1, myun2, mypl1, thpl1)] = numr / deno
+        return firf
+    @cached_property
+    def first_trick_follower_decision(self):
+        """
+        computes a dict which is keyed by [(unplayed1, unplayed2, unplayed3, theirplayed1)] with value
+        the conditional expected match value from 'my' POV of following in the first trick, and the optimal card to play.
+        the expected value is _conditional_ on those cards having been played, and everyone playing the optimal
+        decisions.
+        By assumption unplayed1 >= unplayed2 and unplayed2 >= unplayed3
+        """
+        firf = self.first_trick_follower_value
+        firfd = {}
+        deck = self.__rules.deck
+        for myun1, myun2, myun3, thpl1, _, _ in deck.perm_k(k=4):
+            if (myun1 < myun2) or (myun2 < myun3):
+                continue
+            # value from playing 1, 2 or 3
+            val1 = firf[(myun2, myun3, myun1, thpl1)]
+            val2 = firf[(myun1, myun3, myun2, thpl1)]
+            val3 = firf[(myun1, myun2, myun3, thpl1)]
+            firfd[(myun1, myun2, myun3, thpl1)] = _put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
+        return firfd
+    @cached_property
+    def first_trick_leader_value(self):
+        """
+        computes a dict which is keyed by [(unplayed1, unplayed2, myplayed1)] with value
+        the conditional expected match value from 'my' POV of following in the first trick with myplayed1.
+        the expected value is _conditional_ on those cards having been played, and everyone playing the optimal
+        decisions.
+        By assumption unplayed1 >= unplayed2
+        """
+        secld = self.second_trick_leader_decision
+        secfd = self.second_trick_follower_decision
+        firf = self.first_trick_follower_value
+        firfd = self.first_trick_follower_decision
+        firl = {}
+        deck = self.__rules.deck
+        for myun1, myun2, mypl1, ignore_wt, tail_urn in deck.perm_k(k=3):
+            if myun1 < myun2:
+                continue
+            numr = 0
+            deno = 0
+            for thun1, thun2, thun3, wt,_ in tail_urn.perm_k(k=3):
+                if wt <= 0:
+                    continue
+                sord = sorted([thun1, thun2, thun3], reverse=True)
+                _, thpl1 = firfd[(*sord, mypl1)]
+                # get their unplayed cards.
+                if thpl1 == thun1:
+                    threm1, threm2 = (max(thun2, thun3), min(thun2, thun3))
+                elif thpl1 == thun2:
+                    threm1, threm2 = (max(thun1, thun3), min(thun1, thun3))
+                else:
+                    threm1, threm2 = (max(thun1, thun2), min(thun1, thun2))
+                first_trick = self.__rules.score_trick(mypl1, thpl1)
+                # depending on who wins first trick we have different leader/follower in second.
+                if first_trick >= 0:
+                    # win or tie, I lead again
+                    _, mypl2 = secld[(myun1, myun2, mypl1, thpl1)]
+                    # their response is:
+                    _, thpl2 = secfd[(threm1, threm2, thpl1, mypl1, mypl2)]
+                else:
+                    # they lead.
+                    _, thpl2 = secld[(threm1, threm2, thpl1, mypl1)]
+                    # my response should be
+                    _, mypl2 = secfd[(myun1, myun2, mypl1, thpl1, thpl2)]
+                    pass
+                mypl3 = myun1 if mypl2 == myun2 else myun2
+                thpl3 = threm1 if thpl2 == threm2 else threm2
+                numr += wt * self.__rules.score_from(mypl1, mypl2, mypl3, thpl1, thpl2, thpl3)
+                deno += wt
+            firl[(myun1, myun2, mypl1)] = numr / deno
+        return firl
+    @cached_property
+    def first_trick_leader_decision(self):
+        """
+        computes a dict which is keyed by [(unplayed1, unplayed2, unplayed3)] with value
+        the conditional expected match value from 'my' POV of following in the first trick with myplayed1, and the optimal move.
+        the expected value is _conditional_ on those cards having been played, and everyone playing the optimal
+        decisions.
+        By assumption unplayed1 >= unplayed2 >= unplayed3
+        """
+        firl = self.first_trick_leader_value
+        firld = {}
+        deck = self.__rules.deck
+        for myun1, myun2, myun3, _, _ in deck.perm_k(k=3):
+            if (myun1 < myun2) or (myun2 < myun3):
+                continue
+            # value from playing 1, 2 or 3
+            val1 = firl[(myun2, myun3, myun1)]
+            val2 = firl[(myun1, myun3, myun2)]
+            val3 = firl[(myun1, myun2, myun3)]
+            firld[(myun1, myun2, myun3)] = _put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
+        return firld
+
+short_deck = Urn(Counter({k:4 for k in range(5)}))
+pr = PutRules(deck=short_deck, joker_func=lambda x:x==4)
+
+goo = PutOptimalStrategy(pr)
+zedy = goo.first_trick_leader_decision
 
 #for vim modeline: (do not edit)
 # vim:ts=4:sw=4:sts=4:tw=79:sta:et:ai:nu:fdm=indent:syn=python:ft=python:tag=.py_tags;:cin:fo=croql
