@@ -15,6 +15,7 @@
 """
 
 import itertools
+import random
 from math import factorial, comb, perm
 from collections import Counter
 
@@ -39,6 +40,28 @@ class Urn(Counter):
                 acop[av] -= 1
             if wt != 0:
                 yield (*atup, wt/deno, type(self)(acop))
+    def _generate_(self):
+        """
+        pick one from the urn, returning the tail urn
+        """
+        choice = random.choices(list(self.keys()), weights=list(self.values()), k=1)
+        acop = dict(self).copy()
+        acop[choice[0]] -= 1
+        return (choice, type(self)(acop))
+    def sample(self, k:int=1, replace:bool=False):
+        """
+        Sample from the urn, possibly with replacement, returning a list.
+        """
+        retv = []
+        tailself = self.copy()
+        for idx in range(k):
+            if replace:
+                choice, _ = tailself._generate_()
+            else:
+                choice, tailself = tailself._generate_()
+            retv.extend(choice)
+        return retv
+
 
 #for vim modeline: (do not edit)
 # vim:ts=4:sw=4:sts=4:tw=79:sta:et:ai:nu:fdm=indent:syn=python:ft=python:tag=.py_tags;:cin:fo=croql
