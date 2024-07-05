@@ -29,6 +29,7 @@ p2 is the unconditional probability of a tie.
 
 from copy import copy
 from functools import cached_property
+from functools import cache
 
 from urn import Urn
 from collections import Counter
@@ -126,27 +127,28 @@ pr.score_from((2, 0), (1, 0), (0, 0))
 
 class PutOptimalStrategy():
     """
-    This is for a single deal of three tricks. 
-    But we are always trying to maximize the probability of winning the match, which is to win five deals (or one at put).
-    So this takes as input the conditional probability of winning the match if we win, lose or tie this deal.
-    Those are pc_win, pc_lose, and pc_tie.
-    Then we always seek to maximize pwin * pc_win + ptie * pc_tie + plose * pc_lose.
-    Note that if the current tally is 4-4, which is what we assume here, because then there is no sense in calling 'put',
-    then pc_win = 1, pc_lose = 0, and pc_tie = ??.
-    We probably have to recursively estimate pc_tie.
-
+    Consider a single deal of three cards each from a given deck.
+    We find the optimal strategy of a risk neutral player for given conditional probabilities of winning the match
+    conditional on winning this deal.
+    That is, players try to maximize the probability of winning the match, which is to win five deals (or one at put).
+    Consider the conditional probability of winning the match if we win, lose or tie this deal, call them
+    pc_win, pc_lose, and pc_tie.
+    Players seek to maximize pwin * pc_win + ptie * pc_tie + plose * pc_lose.
+    Note that if the current tally is 4-4, (and thus there is no sense in calling 'put'),
+    then pc_win = 1, pc_lose = 0, and pc_tie = 0.5 ???.
+    (We probably have to recursively estimate pc_tie.)
     At each step the objective function we will compute (and then chose to maximize) is
-    O = pwin * prob_win_con_win + ptie * prob_win_con_tie + (1 - pwin - ptie) * prob_win_con_lose
-      = pwin * (prob_win_con_win - prob_win_con_lose) + ptie * (prob_win_con_tie - prob_win_con_lose) + prob_win_con_lose
-    So it suffices to maximize instead O - prob_win_con_lose
+      O = pwin * prob_win_con_win + (1-pwin-plose) * prob_win_con_tie + plose * prob_win_con_lose
+        = pwin * (prob_win_con_win - prob_win_con_tie) + prob_win_con_tie + plose * (prob_win_con_lose - prob_win_con_tie)
+    So it suffices to instead maximize 
+      O - prob_win_con_tie = pwin * wt_win + plose * wt_lose
+    where
+      wt_win = prob_win_con_win - prob_win_con_tie
+      wt_lose = prob_win_con_lose - prob_win_con_tie
+    Note that the variable i_lead_next means that this player will lead the first trick in the next deal.
     """
-    def __init__(self, rules, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=0.5):
+    def __init__(self, rules):
         self.__rules = rules
-        self.prob_win_con_win=prob_win_con_win
-        self.prob_win_con_lose=prob_win_con_lose
-        self.prob_win_con_tie=prob_win_con_tie
-        self.wt_win = prob_win_con_win - prob_win_con_lose
-        self.wt_tie = prob_win_con_tie - prob_win_con_lose
     @staticmethod
     def _put_best(alist):
         """
@@ -156,8 +158,8 @@ class PutOptimalStrategy():
         """
         # we cannot negate cards but we can negate values
         return min(alist, key=lambda x: (-x[0], x[1]))
-    @cached_property
-    def second_trick_follower_value(self):
+    @cache
+    def second_trick_follower_value(self, i_lead_next=False, wt_win=0.5, wt_lose=-0.5):
         """
         computes a dict which is keyed by [(unplayed1, myplayed1, myplayed2, theirplayed1, theirplayed2)] with value
         the conditional expected match value from 'my' POV.
@@ -167,24 +169,24 @@ class PutOptimalStrategy():
         deck = self.__rules.deck
         for myun1, mypl1, mypl2, thpl1, thpl2, ignore_wt, tail_urn in deck.perm_k(k=5):
             numr_win = 0
-            numr_tie = 0
+            numr_los = 0
             deno = 0
             for thun1, wt, _ in tail_urn.perm_k(k=1):
                 outcome = self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (myun1, thun1))
                 numr_win += wt * max(outcome, 0)
-                numr_tie += wt * (1 - abs(outcome))
+                numr_los -= wt * min(outcome, 0)
                 deno += wt
-            secf[(myun1, mypl1, mypl2, thpl1, thpl2)] = (self.wt_win * numr_win + self.wt_tie * numr_tie) / deno
+            secf[(myun1, mypl1, mypl2, thpl1, thpl2)] = (wt_win * numr_win + wt_lose * numr_los) / deno
         return secf
-    @cached_property
-    def second_trick_follower_decision(self):
+    @cache
+    def second_trick_follower_decision(self, i_lead_next=False, wt_win=0.5, wt_lose=-0.5):
         """
         computes a dict which is keyed by [(unplayed1, unplayed2, myplayed1, theirplayed1, theirplayed2)] with value
         the optimal conditional expected match value from 'my' POV, and the card to play from my two unplayed cards.
         by convention unplayed1 >= unplayed2
         the expected value is _conditional_ on those cards having been played.
         """
-        secf = self.second_trick_follower_value
+        secf = self.second_trick_follower_value(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
         secfd = {}
         deck = self.__rules.deck
         for myun1, myun2, mypl1, thpl1, thpl2, ignore_wt, tail_urn in deck.perm_k(k=5):
@@ -196,8 +198,8 @@ class PutOptimalStrategy():
             val2 = secf.get((myun1, mypl1, myun2, thpl1, thpl2))
             secfd[(myun1, myun2, mypl1, thpl1, thpl2)] = self._put_best([(val1, myun1), (val2, myun2)])
         return secfd
-    @cached_property
-    def second_trick_leader_value(self):
+    @cache
+    def second_trick_leader_value(self, i_lead_next=False, wt_win=0.5, wt_lose=-0.5):
         """
         computes a dict which is keyed by [(unplayed1, myplayed1, myplayed2, theirplayed1)] with value
         the conditional expected match value from 'my' POV of leading with myplayed2 in the second
@@ -206,14 +208,14 @@ class PutOptimalStrategy():
         playing the optimal follow decision.
         By assumption since I am leading in the second trick, myplayed1 >= theirplayed1.
         """
-        secfd = self.second_trick_follower_decision
+        secfd = self.second_trick_follower_decision(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
         secl = {}
         deck = self.__rules.deck
         for myun1, mypl1, mypl2, thpl1, ignore_wt, tail_urn in deck.perm_k(k=4):
             if mypl1 < thpl1:
                 continue
             numr_win = 0
-            numr_tie = 0
+            numr_los = 0
             deno = 0
             for thun1, thun2, wt, _ in tail_urn.perm_k(k=2):
                 if wt <= 0:
@@ -223,12 +225,12 @@ class PutOptimalStrategy():
                 thpl3 = thun2 if thpl2==thun1 else thun1
                 outcome = self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (myun1, thpl3))
                 numr_win += wt * max(outcome, 0)
-                numr_tie += wt * (1 - abs(outcome))
+                numr_los -= wt * min(outcome, 0)
                 deno += wt
-            secl[(myun1, mypl1, mypl2, thpl1)] = (self.wt_win * numr_win + self.wt_tie * numr_tie) / deno
+            secl[(myun1, mypl1, mypl2, thpl1)] = (wt_win * numr_win + wt_lose * numr_los) / deno
         return secl
-    @cached_property
-    def second_trick_leader_decision(self):
+    @cache
+    def second_trick_leader_decision(self, i_lead_next=False, wt_win=0.5, wt_lose=-0.5):
         """
         computes a dict which is keyed by [(unplayed1, unplayed2, myplayed1, theirplayed1)] with value
         the conditional expected match value from 'my' POV, and the optimal card to lead with in the second trick.
@@ -237,7 +239,7 @@ class PutOptimalStrategy():
         By assumption since I am leading in the second trick, myplayed1 >= theirplayed1.
         We also assume unplayed1 >= unplayed2
         """
-        secl = self.second_trick_leader_value
+        secl = self.second_trick_leader_value(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
         secld = {}
         deck = self.__rules.deck
         for myun1, myun2, mypl1, thpl1, _, _ in deck.perm_k(k=4):
@@ -251,8 +253,8 @@ class PutOptimalStrategy():
             val2 = secl.get((myun1, mypl1, myun2, thpl1))
             secld[(myun1, myun2, mypl1, thpl1)] = self._put_best([(val1, myun1), (val2, myun2)])
         return secld
-    @cached_property
-    def first_trick_follower_value(self):
+    @cache
+    def first_trick_follower_value(self, i_lead_next=False, wt_win=0.5, wt_lose=-0.5):
         """
         computes a dict which is keyed by [(unplayed1, unplayed2, myplayed1, theirplayed1)] with value
         the conditional expected match value from 'my' POV of following in the first trick with myplayed1.
@@ -260,15 +262,18 @@ class PutOptimalStrategy():
         decisions.
         By assumption unplayed1 >= unplayed2
         """
-        secld = self.second_trick_leader_decision
-        secfd = self.second_trick_follower_decision
+        secld = self.second_trick_leader_decision(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
+        secfd = self.second_trick_follower_decision(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
+        # from your opponent's POV:
+        alt_secld = self.second_trick_leader_decision(i_lead_next=not i_lead_next, wt_win=wt_lose, wt_lose=wt_win)
+        alt_secfd = self.second_trick_follower_decision(i_lead_next=not i_lead_next, wt_win=wt_lose, wt_lose=wt_win)
         firf = {}
         deck = self.__rules.deck
         for myun1, myun2, mypl1, thpl1, ignore_wt, tail_urn in deck.perm_k(k=4):
             if myun1 < myun2:
                 continue
             numr_win = 0
-            numr_tie = 0
+            numr_los = 0
             deno = 0
             first_trick = self.__rules.score_trick(mypl1, thpl1)
             for thun1, thun2, wt, _ in tail_urn.perm_k(k=2):
@@ -279,24 +284,24 @@ class PutOptimalStrategy():
                     # what should we lead with?
                     _, mypl2 = secld[(max(myun1, myun2), min(myun1, myun2), mypl1, thpl1)]
                     # what should they follow in the second trick with?
-                    _, thpl2 = secfd[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1, mypl2)]
+                    _, thpl2 = alt_secfd[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1, mypl2)]
                 else:
                     # first trick we tied or lost after following, so we follow
                     # in the second.
                     # figure out what they would lead with
-                    _, thpl2 = secld[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1)]
+                    _, thpl2 = alt_secld[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1)]
                     # what should we follow with in the second trick?
                     _, mypl2 = secfd[(max(myun1, myun2), min(myun1, myun2), mypl1, thpl1, thpl2)]
                 mypl3 = myun1 if mypl2 == myun2 else myun2
                 thpl3 = thun1 if thpl2 == thun2 else thun2
                 outcome = self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (mypl3, thpl3))
                 numr_win += wt * max(outcome, 0)
-                numr_tie += wt * (1 - abs(outcome))
+                numr_los -= wt * min(outcome, 0)
                 deno += wt
-            firf[(myun1, myun2, mypl1, thpl1)] = (self.wt_win * numr_win + self.wt_tie * numr_tie) / deno
+            firf[(myun1, myun2, mypl1, thpl1)] = (wt_win * numr_win + wt_lose * numr_los) / deno
         return firf
-    @cached_property
-    def first_trick_follower_decision(self):
+    @cache
+    def first_trick_follower_decision(self, i_lead_next=False, wt_win=0.5, wt_lose=-0.5):
         """
         computes a dict which is keyed by [(unplayed1, unplayed2, unplayed3, theirplayed1)] with value
         the conditional expected match value from 'my' POV of following in the first trick, and the optimal card to play.
@@ -304,7 +309,7 @@ class PutOptimalStrategy():
         decisions.
         By assumption unplayed1 >= unplayed2 and unplayed2 >= unplayed3
         """
-        firf = self.first_trick_follower_value
+        firf = self.first_trick_follower_value(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
         firfd = {}
         deck = self.__rules.deck
         for myun1, myun2, myun3, thpl1, _, _ in deck.perm_k(k=4):
@@ -316,8 +321,8 @@ class PutOptimalStrategy():
             val3 = firf[(myun1, myun2, myun3, thpl1)]
             firfd[(myun1, myun2, myun3, thpl1)] = self._put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
         return firfd
-    @cached_property
-    def first_trick_leader_value(self):
+    @cache
+    def first_trick_leader_value(self, i_lead_next=False, wt_win=0.5, wt_lose=-0.5):
         """
         computes a dict which is keyed by [(unplayed1, unplayed2, myplayed1)] with value
         the conditional expected match value from 'my' POV of following in the first trick with myplayed1.
@@ -325,17 +330,21 @@ class PutOptimalStrategy():
         decisions.
         By assumption unplayed1 >= unplayed2
         """
-        secld = self.second_trick_leader_decision
-        secfd = self.second_trick_follower_decision
-        firf = self.first_trick_follower_value
-        firfd = self.first_trick_follower_decision
+        secld = self.second_trick_leader_decision(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
+        secfd = self.second_trick_follower_decision(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
+        # from your opponent's POV:
+        alt_secld = self.second_trick_leader_decision(i_lead_next=not i_lead_next, wt_win=wt_lose, wt_lose=wt_win)
+        alt_secfd = self.second_trick_follower_decision(i_lead_next=not i_lead_next, wt_win=wt_lose, wt_lose=wt_win)
+        # first round stuff
+        firf = self.first_trick_follower_value(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
+        firfd = self.first_trick_follower_decision(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
         firl = {}
         deck = self.__rules.deck
         for myun1, myun2, mypl1, ignore_wt, tail_urn in deck.perm_k(k=3):
             if myun1 < myun2:
                 continue
             numr_win = 0
-            numr_tie = 0
+            numr_los = 0
             deno = 0
             for thun1, thun2, thun3, wt,_ in tail_urn.perm_k(k=3):
                 if wt <= 0:
@@ -358,10 +367,10 @@ class PutOptimalStrategy():
                     # win or tie, I lead again
                     _, mypl2 = secld[(myun1, myun2, mypl1, thpl1)]
                     # their response is:
-                    _, thpl2 = secfd[(threm1, threm2, thpl1, mypl1, mypl2)]
+                    _, thpl2 = alt_secfd[(threm1, threm2, thpl1, mypl1, mypl2)]
                 else:
                     # they lead.
-                    _, thpl2 = secld[(threm1, threm2, thpl1, mypl1)]
+                    _, thpl2 = alt_secld[(threm1, threm2, thpl1, mypl1)]
                     # my response should be
                     _, mypl2 = secfd[(myun1, myun2, mypl1, thpl1, thpl2)]
                     pass
@@ -369,12 +378,12 @@ class PutOptimalStrategy():
                 thpl3 = threm1 if thpl2 == threm2 else threm2
                 outcome = self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (mypl3, thpl3))
                 numr_win += wt * max(outcome, 0)
-                numr_tie += wt * (1 - abs(outcome))
+                numr_los -= wt * min(outcome, 0)
                 deno += wt
-            firl[(myun1, myun2, mypl1)] = (self.wt_win * numr_win + self.wt_tie * numr_tie) / deno
+            firl[(myun1, myun2, mypl1)] = (wt_win * numr_win + wt_lose * numr_los) / deno
         return firl
-    @cached_property
-    def first_trick_leader_decision(self):
+    @cache
+    def first_trick_leader_decision(self, i_lead_next=False, wt_win=0.5, wt_lose=-0.5):
         """
         computes a dict which is keyed by [(unplayed1, unplayed2, unplayed3)] with value
         the conditional expected match value from 'my' POV of following in the first trick with myplayed1, and the optimal move.
@@ -382,7 +391,7 @@ class PutOptimalStrategy():
         decisions.
         By assumption unplayed1 >= unplayed2 >= unplayed3
         """
-        firl = self.first_trick_leader_value
+        firl = self.first_trick_leader_value(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
         firld = {}
         deck = self.__rules.deck
         for myun1, myun2, myun3, _, _ in deck.perm_k(k=3):
@@ -394,18 +403,43 @@ class PutOptimalStrategy():
             val3 = firl[(myun1, myun2, myun3)]
             firld[(myun1, myun2, myun3)] = self._put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
         return firld
+    @cache
+    def prob_win(self, i_lead_next=False, prob_win_con_win=1, prob_win_con_tie=0.5, prob_win_con_lose=0):
+        """
+        computes the probability that I will win, unconditional of the cards dealt, given that I lead this trick,
+        and we have the given conditional probabilities of winning given the outcome of this deal.
+        """
+        wt_win = prob_win_con_win - prob_win_con_tie
+        wt_lose = prob_win_con_lose - prob_win_con_tie
+        firld = self.first_trick_leader_decision(i_lead_next=i_lead_next, wt_win=wt_win, wt_lose=wt_lose)
+        numr_win = 0
+        deno = 0
+        deck = self.__rules.deck
+        for myun1, myun2, myun3, wt, _ in deck.perm_k(k=3):
+            mykey = tuple(sorted([myun1, myun2, myun3], reverse=True))
+            deno += wt
+            numr_win += wt * (firld[mykey][0] + prob_win_con_tie)
+        return numr_win / deno
 
+# careful looking at this, as it has _jokers_ in it.
 short_deck = Urn(Counter({k:4 for k in range(5)}))
 pr = PutRules(deck=short_deck, joker_func=lambda x:x==4)
-
 goo = PutOptimalStrategy(pr)
-# careful looking at this, as it has _jokers_ in it.
-zedy = goo.first_trick_leader_decision
+zedy = goo.first_trick_leader_decision()
 
+# no joke deck
 dum_deck = Urn(Counter({k:4 for k in range(7)}))
 pr = PutRules(deck=dum_deck, joker_func=lambda x:False)
 goo = PutOptimalStrategy(pr)
-zedy = goo.first_trick_leader_decision
+zedy = goo.first_trick_leader_decision()
+pio = goo.prob_win()
+pio2 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio)
+pio3 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio2)
+pio4 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio3)
+pio5 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio4)
+# these have basically converged.
+zedy = goo.first_trick_leader_decision(i_lead_next=False, wt_win=pio5, wt_lose=pio5-1)
+
 
 
 # enum with ordering. See also Enum.OrderedEnum
