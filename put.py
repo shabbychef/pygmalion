@@ -499,28 +499,68 @@ class PutOptimalStrategy():
             # need to add the pcon_win_con_tie part here...
             firfuv[(myun1, myun2, myun3)] = numr_win / deno
         return firfuv
+    def _save_something(self, outfile, header_row, save_dict):
+        """
+        canonical way to sink to csv.
+        """
+        with open(outfile,'w') as out:
+            csv_out=csv.writer(out)
+            csv_out.writerow(header_row)
+            for cads, out in save_dict.items():
+                if isinstance(out, tuple):
+                    arow = [*cads, *out]
+                else:
+                    arow = [*cads, out]
+                csv_out.writerow(arow)
     def save_first_trick_leader_decision(self, outfile, pw_tup):
         """
         canonical way to sink to csv.
         """
         firld = self.first_trick_leader_decision(pw_tup=pw_tup)
-        with open(outfile,'w') as out:
-            csv_out=csv.writer(out)
-            csv_out.writerow(['card1','card2','card3','pwin','to_play'])
-            for cads, out in firld.items():
-                arow = [*cads, *out]
-                csv_out.writerow(arow)
-    def save_first_trick_follower_unconditional_value(self, outfile, pw_tup):
+        self._save_something(outfile=outfile, header_row=['card1','card2','card3','pwin','to_play'], save_dict=firld)
+
+    def save_first_trick_follower_unconditional_value(self, outfile, pw_tup, flip_sense:bool = True):
         """
         canonical way to sink to csv.
+
+        Args:
+
+          flip_sense: if true, we assume pw_tup is from the first trick leader's perspective,
+                    and we flip its sense for you.
         """
+        if flip_sense:
+            pw_tup = self._opponent_tup(pw_tup)
         firfuv = self.first_trick_follower_unconditional_value(pw_tup=pw_tup)
-        with open(outfile,'w') as out:
-            csv_out=csv.writer(out)
-            csv_out.writerow(['card1','card2','card3','pwin'])
-            for cads, out in firfuv.items():
-                arow = [*cads, out]
-                csv_out.writerow(arow)
+        self._save_something(outfile=outfile, header_row=['card1','card2','card3','pwin'], save_dict=firfuv)
+
+    def save_first_trick_follower_decision(self, outfile, pw_tup, flip_sense:bool = True):
+        """
+        canonical way to sink to csv.
+
+        Args:
+
+          flip_sense: if true, we assume pw_tup is from the first trick leader's perspective,
+                    and we flip its sense for you.
+        """
+        if flip_sense:
+            pw_tup = self._opponent_tup(pw_tup)
+        firfd = self.first_trick_follower_decision(pw_tup=pw_tup)
+        self._save_something(outfile=outfile, header_row=['card1','card2','card3','opponent_card','pwin','to_play'], save_dict=firfd)
+
+    def save_second_trick_leader_decision(self, outfile, pw_tup, flip_sense:bool = False):
+        """
+        canonical way to sink to csv.
+
+        Args:
+
+          flip_sense: if true, we assume pw_tup is from the first trick leader's perspective,
+                    and we flip its sense for you.
+        """
+        if flip_sense:
+            pw_tup = self._opponent_tup(pw_tup)
+        secld = self.second_trick_leader_decision(pw_tup)
+        self._save_something(outfile=outfile, header_row=['card1','card2','myplayed1','theirplayed1','pwin','to_play'], save_dict=secld)
+
     @cache
     def prob_win(self, pw_tup):
         """
@@ -560,68 +600,14 @@ class PutOptimalStrategy():
 # careful looking at this, as it has _jokers_ in it.
 short_deck = Urn(Counter({k:4 for k in range(5)}))
 pr = PutRules(deck=short_deck, joker_func=lambda x:x==4)
-goo = PutOptimalStrategy(pr)
-zedy = goo.first_trick_leader_decision()
 
 # no joke deck
 dum_deck = Urn(Counter({k:4 for k in range(7)}))
 pr = PutRules(deck=dum_deck, joker_func=lambda x:False)
-goo = PutOptimalStrategy(pr)
-zedy = goo.first_trick_leader_decision()
-pio = goo.prob_win()
-pio2 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio)
-pio3 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio2)
-pio4 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio3)
-pio5 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio4)
-# these have basically converged.
-zedy = goo.first_trick_leader_decision(i_lead_next=False, wt_win=pio5, wt_lose=pio5-1)
-
 
 # bigger deck, with a joker
 dum_deck = Urn(Counter({k:4 for k in range(10)}))
 pr = PutRules(deck=dum_deck, joker_func=lambda x:False)
-goo = PutOptimalStrategy(pr)
-zedy = goo.first_trick_leader_decision()
-pio = goo.prob_win()
-pio2 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio)
-pio3 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio2)
-pio4 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio3)
-pio5 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio4)
-# these have basically converged.
-zedy = goo.first_trick_leader_decision(i_lead_next=False, wt_win=pio5, wt_lose=pio5-1)
-
-import csv
-
-with open('/home/spav/putfoo.csv','w') as out:
-    csv_out=csv.writer(out)
-    csv_out.writerow(['card1','card2','card3','pwin','to_play'])
-    for cads, out in zedy.items():
-        arow = [*cads, *out]
-        arow[3] += (1-pio5)
-        csv_out.writerow(arow)
-
-big_deck = Urn(Counter({k:4 for k in range(13)} | {14:2}))
-pr = PutRules(deck=big_deck, joker_func=lambda x:x==14)
-goo = PutOptimalStrategy(pr)
-zedy = goo.first_trick_leader_decision()
-pio = goo.prob_win()
-pio2 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio)
-pio3 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio2)
-pio4 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio3)
-pio5 = goo.prob_win(i_lead_next=False, prob_win_con_win=1, prob_win_con_lose=0, prob_win_con_tie=1-pio4)
-print(f"{pio=}, {pio2=}, {pio3=}, {pio4=}, {pio5=}")
-zedy = goo.first_trick_leader_decision(i_lead_next=False, wt_win=pio4, wt_lose=pio4-1)
-
-import csv
-
-with open('/home/spav/putfoo_joker.csv','w') as out:
-    csv_out=csv.writer(out)
-    csv_out.writerow(['card1','card2','card3','pwin','to_play'])
-    for cads, out in zedy.items():
-        arow = [*cads, *out]
-        arow[3] += (1-pio5)
-        csv_out.writerow(arow)
-
 """
 
 """
@@ -635,15 +621,49 @@ pr = PutRules(deck=lil_deck, joker_func=lambda x:False)
 
 pi_prev = 0.75
 pi_prev = 0.4561
-pi_prev = 0.45615810907504106
-pi_prev = 0.4561581300565566
+pi_prev = 0.45615813006413264
 agoo = PutOptimalStrategy(pr)
-pw_next = agoo.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-10)
+pw_next = agoo.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-13)
 zedy = agoo.first_trick_leader_decision(pw_next)
 
 
 agoo.save_first_trick_leader_decision("/tmp/putfoo_000.csv", pw_next)
 agoo.save_first_trick_follower_unconditional_value("/tmp/putfoo_001.csv", pw_next)
+agoo.save_first_trick_follower_decision("/tmp/putfoo_002.csv", pw_next)
+agoo.save_second_trick_leader_decision("/tmp/putfoo_003.csv", pw_next)
+
+# try a bigger deck.
+mid_deck = Urn(Counter({k:4 for k in range(10)}))
+pr = PutRules(deck=mid_deck, joker_func=lambda x:False)
+
+# for 10 card deck:
+afoo = PutOptimalStrategy(pr)
+pi_prev = 0.45321120559804773
+pw_next = afoo.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-13)
+1 - pw_next[1]
+zedy = afoo.first_trick_leader_decision(pw_next)
+
+afoo.save_first_trick_leader_decision("/tmp/putfoo_000.csv", pw_next)
+afoo.save_first_trick_follower_unconditional_value("/tmp/putfoo_001.csv", pw_next)
+afoo.save_first_trick_follower_decision("/tmp/putfoo_002.csv", pw_next)
+afoo.save_second_trick_leader_decision("/tmp/putfoo_003.csv", pw_next)
+
+
+# try little deck plus 2 jokers
+lil_deck = Urn(Counter({k:(4 if k < 6 else 2) for k in range(7)}))
+pr = PutRules(deck=lil_deck, joker_func=lambda x:x==6)
+
+# for 10 card deck:
+pi_prev = 0.47570996176217173
+abar = PutOptimalStrategy(pr)
+pw_next = abar.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-13)
+1 - pw_next[1]
+
+abar.save_first_trick_leader_decision("/tmp/putfoo_000.csv", pw_next)
+abar.save_first_trick_follower_unconditional_value("/tmp/putfoo_001.csv", pw_next)
+abar.save_first_trick_follower_decision("/tmp/putfoo_002.csv", pw_next)
+abar.save_second_trick_leader_decision("/tmp/putfoo_003.csv", pw_next)
+
 
 """
 
