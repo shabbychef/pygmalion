@@ -561,6 +561,20 @@ class PutOptimalStrategy():
         secld = self.second_trick_leader_decision(pw_tup)
         self._save_something(outfile=outfile, header_row=['card1','card2','myplayed1','theirplayed1','pwin','to_play'], save_dict=secld)
 
+    def save_second_trick_follower_decision(self, outfile, pw_tup, flip_sense:bool = True):
+        """
+        canonical way to sink to csv.
+
+        Args:
+
+          flip_sense: if true, we assume pw_tup is from the first trick follower's perspective,
+                    and we flip its sense for you.
+        """
+        if flip_sense:
+            pw_tup = self._opponent_tup(pw_tup)
+        secfd = self.second_trick_follower_decision(pw_tup)
+        self._save_something(outfile=outfile, header_row=['card1','card2','myplayed1','theirplayed1','theirplayed2','pwin','to_play'], save_dict=secfd)
+
     @cache
     def prob_win(self, pw_tup):
         """
@@ -641,12 +655,12 @@ afoo = PutOptimalStrategy(pr)
 pi_prev = 0.45321120559804773
 pw_next = afoo.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-13)
 1 - pw_next[1]
-zedy = afoo.first_trick_leader_decision(pw_next)
 
 afoo.save_first_trick_leader_decision("/tmp/putfoo_000.csv", pw_next)
 afoo.save_first_trick_follower_unconditional_value("/tmp/putfoo_001.csv", pw_next)
 afoo.save_first_trick_follower_decision("/tmp/putfoo_002.csv", pw_next)
 afoo.save_second_trick_leader_decision("/tmp/putfoo_003.csv", pw_next)
+afoo.save_second_trick_follower_decision("/tmp/putfoo_004.csv", pw_next)
 
 
 # try little deck plus 2 jokers
