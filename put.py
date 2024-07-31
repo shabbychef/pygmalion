@@ -161,18 +161,26 @@ class PutOptimalStrategy():
       prob_win_con_win:  the probability that "Me" wins the match given that "Me" wins this deal.
       prob_win_con_lose:  the probability that "Me" wins the match given that "Me" loses this deal.
       prob_win_con_tie:  the probability that "Me" wins the match given that "Me" and "They" tie this deal.
+
+    The methods *_value return a dict mapping the observed data to a tuple of
+    (match_win_prop, deal_win_prob, deal_lose_prob)
+    and are contingent on making a given move.
+    The methods *_decision return a dict mapping the observed data to a tuple of
+    (optimal_move, optimal_match_win_prop, optimal_deal_win_prob, optimal_deal_lose_prob)
+
+
     """
     def __init__(self, rules):
         self.__rules = rules
     @staticmethod
     def _put_best(alist):
         """
-        Given a list consisting of tuples of the form (valuation, card),
+        Given a list consisting of tuples of the form (card, valuation1, valuation2, ...),
         returns the 'maximal' tuple of the list, where the sort is in 
-        ascending valuation, but descending card value.
+        ascending order of valuation1, but descending card value.
         """
         # we cannot negate cards but we can negate values
-        return min(alist, key=lambda x: (-x[0], x[1]))
+        return min(alist, key=lambda x: (-x[1], x[0]))
     @staticmethod
     def _get_wts(pw_tup):
         prob_win_con_win, prob_win_con_tie, prob_win_con_lose = pw_tup
@@ -216,7 +224,9 @@ class PutOptimalStrategy():
                 numr_win += wt * max(outcome, 0)
                 numr_los -= wt * min(outcome, 0)
                 deno += wt
-            secf[(myun1, mypl1, mypl2, thpl1, thpl2)] = prob_win_con_tie + ((wt_win * numr_win + wt_lose * numr_los) / deno)
+            pr_win = numr_win / deno
+            pr_los = numr_los / deno
+            secf[(myun1, mypl1, mypl2, thpl1, thpl2)] = (prob_win_con_tie + (wt_win * pr_win + wt_lose * pr_los), pr_win, pr_los)
         return secf
     @cache
     def second_trick_follower_decision(self, pw_tup):
@@ -236,7 +246,7 @@ class PutOptimalStrategy():
             if val1 is None:
                 continue
             val2 = secf.get((myun1, mypl1, myun2, thpl1, thpl2))
-            secfd[(myun1, myun2, mypl1, thpl1, thpl2)] = self._put_best([(val1, myun1), (val2, myun2)])
+            secfd[(myun1, myun2, mypl1, thpl1, thpl2)] = self._put_best([(myun1, *val1), (myun2, *val2)])
         return secfd
     @cache
     def second_trick_leader_value(self, pw_tup):
@@ -262,13 +272,15 @@ class PutOptimalStrategy():
                 if wt <= 0:
                     continue
                 # figure out what they follow with:
-                _, thpl2 = secfd[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1, mypl2)]
+                thpl2, _, _, _ = secfd[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1, mypl2)]
                 thpl3 = thun2 if thpl2==thun1 else thun1
                 outcome = self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (myun1, thpl3))
                 numr_win += wt * max(outcome, 0)
                 numr_los -= wt * min(outcome, 0)
                 deno += wt
-            secl[(myun1, mypl1, mypl2, thpl1)] = prob_win_con_tie + ((wt_win * numr_win + wt_lose * numr_los) / deno)
+            pr_win = numr_win / deno
+            pr_los = numr_los / deno
+            secl[(myun1, mypl1, mypl2, thpl1)] = (prob_win_con_tie + (wt_win * pr_win + wt_lose * pr_los), pr_win, pr_los)
         return secl
     @cache
     def second_trick_leader_decision(self, pw_tup):
@@ -292,7 +304,7 @@ class PutOptimalStrategy():
             if val1 is None:
                 continue
             val2 = secl.get((myun1, mypl1, myun2, thpl1))
-            secld[(myun1, myun2, mypl1, thpl1)] = self._put_best([(val1, myun1), (val2, myun2)])
+            secld[(myun1, myun2, mypl1, thpl1)] = self._put_best([(myun1, *val1), (myun2, *val2)])
         return secld
     @cache
     def first_trick_follower_value(self, pw_tup):
@@ -324,23 +336,25 @@ class PutOptimalStrategy():
                 if first_trick > 0:
                     # we lead in the second trick
                     # what should we lead with?
-                    _, mypl2 = secld[(max(myun1, myun2), min(myun1, myun2), mypl1, thpl1)]
+                    mypl2, _, _, _ = secld[(max(myun1, myun2), min(myun1, myun2), mypl1, thpl1)]
                     # what should they follow in the second trick with?
-                    _, thpl2 = alt_secfd[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1, mypl2)]
+                    thpl2, _, _, _ = alt_secfd[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1, mypl2)]
                 else:
                     # first trick we tied or lost after following, so we follow
                     # in the second.
                     # figure out what they would lead with
-                    _, thpl2 = alt_secld[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1)]
+                    thpl2, _, _, _ = alt_secld[(max(thun1, thun2), min(thun1, thun2), thpl1, mypl1)]
                     # what should we follow with in the second trick?
-                    _, mypl2 = secfd[(max(myun1, myun2), min(myun1, myun2), mypl1, thpl1, thpl2)]
+                    mypl2, _, _, _ = secfd[(max(myun1, myun2), min(myun1, myun2), mypl1, thpl1, thpl2)]
                 mypl3 = myun1 if mypl2 == myun2 else myun2
                 thpl3 = thun1 if thpl2 == thun2 else thun2
                 outcome = self.__rules.score_from((mypl1, thpl1), (mypl2, thpl2), (mypl3, thpl3))
                 numr_win += wt * max(outcome, 0)
                 numr_los -= wt * min(outcome, 0)
                 deno += wt
-            firf[(myun1, myun2, mypl1, thpl1)] = prob_win_con_tie + ((wt_win * numr_win + wt_lose * numr_los) / deno)
+            pr_win = numr_win / deno
+            pr_los = numr_los / deno
+            firf[(myun1, myun2, mypl1, thpl1)] = (prob_win_con_tie + (wt_win * pr_win + wt_lose * pr_los), pr_win, pr_los)
         return firf
     @cache
     def first_trick_follower_decision(self, pw_tup):
@@ -361,7 +375,7 @@ class PutOptimalStrategy():
             val1 = firf[(myun2, myun3, myun1, thpl1)]
             val2 = firf[(myun1, myun3, myun2, thpl1)]
             val3 = firf[(myun1, myun2, myun3, thpl1)]
-            firfd[(myun1, myun2, myun3, thpl1)] = self._put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
+            firfd[(myun1, myun2, myun3, thpl1)] = self._put_best([(myun1, *val1), (myun2, *val2), (myun3, *val3)])
         return firfd
     @cache
     def first_trick_leader_value(self, pw_tup):
@@ -371,6 +385,9 @@ class PutOptimalStrategy():
         the expected value is _conditional_ on those cards having been played, and everyone playing the optimal
         decisions.
         By assumption unplayed1 >= unplayed2 and unplayed2 >= unplayed3
+
+        2FIX: have to modify this to also return the probability of winning or losing _this deal_.
+        Probably have to do that for _all_ the functions, sadly.
         """
         secld = self.second_trick_leader_decision(pw_tup=pw_tup)
         secfd = self.second_trick_follower_decision(pw_tup=pw_tup)
@@ -392,7 +409,7 @@ class PutOptimalStrategy():
                 if wt <= 0:
                     continue
                 sord = sorted([thun1, thun2, thun3], reverse=True)
-                _, thpl1 = firfd[(*sord, mypl1)]
+                thpl1, _, _, _ = firfd[(*sord, mypl1)]
                 # get their unplayed cards.
                 if thpl1 == thun1:
                     threm1, threm2 = (max(thun2, thun3), min(thun2, thun3))
@@ -407,14 +424,14 @@ class PutOptimalStrategy():
                 # sigh.
                 if first_trick >= 0:
                     # win or tie, I lead again
-                    _, mypl2 = secld[(myun1, myun2, mypl1, thpl1)]
+                    mypl2, _, _, _ = secld[(myun1, myun2, mypl1, thpl1)]
                     # their response is:
-                    _, thpl2 = alt_secfd[(threm1, threm2, thpl1, mypl1, mypl2)]
+                    thpl2, _, _, _ = alt_secfd[(threm1, threm2, thpl1, mypl1, mypl2)]
                 else:
                     # they lead.
-                    _, thpl2 = alt_secld[(threm1, threm2, thpl1, mypl1)]
+                    thpl2, _, _, _ = alt_secld[(threm1, threm2, thpl1, mypl1)]
                     # my response should be
-                    _, mypl2 = secfd[(myun1, myun2, mypl1, thpl1, thpl2)]
+                    mypl2, _, _, _ = secfd[(myun1, myun2, mypl1, thpl1, thpl2)]
                     pass
                 mypl3 = myun1 if mypl2 == myun2 else myun2
                 thpl3 = threm1 if thpl2 == threm2 else threm2
@@ -422,7 +439,9 @@ class PutOptimalStrategy():
                 numr_win += wt * max(outcome, 0)
                 numr_los -= wt * min(outcome, 0)
                 deno += wt
-            firl[(myun1, myun2, mypl1)] = prob_win_con_tie + ((wt_win * numr_win + wt_lose * numr_los) / deno)
+            pr_win = numr_win / deno
+            pr_los = numr_los / deno
+            firl[(myun1, myun2, mypl1)] = (prob_win_con_tie + (wt_win * pr_win + wt_lose * pr_los), pr_win, pr_los)
         return firl
     @cache
     def first_trick_leader_decision(self, pw_tup):
@@ -443,7 +462,7 @@ class PutOptimalStrategy():
             val1 = firl[(myun2, myun3, myun1)]
             val2 = firl[(myun1, myun3, myun2)]
             val3 = firl[(myun1, myun2, myun3)]
-            firld[(myun1, myun2, myun3)] = self._put_best([(val1, myun1), (val2, myun2), (val3, myun3)])
+            firld[(myun1, myun2, myun3)] = self._put_best([(myun1, *val1), (myun2, *val2), (myun3, *val3)])
         return firld
     @cache
     def first_trick_call_put_decision(self, pw_tup):
@@ -458,8 +477,8 @@ class PutOptimalStrategy():
         if self.can_call_put(pw_tup):
             put_firld = self.first_trick_leader_decision(self, pw_tup=self._put_tup(pw_tup))
             for key, npval in firld.items():
-                noval, _ = npval
-                yesval, _ = put_firld[key]
+                _, noval, _, _ = npval
+                _, yesval, _, _ = put_firld[key]
                 ftpd[key] = ("call_put" if yesval > noval else "knock", max(noval, yesval))
         else:
             for key, npval in firld.items():
@@ -473,6 +492,8 @@ class PutOptimalStrategy():
         Calling put accelerates the probability of winning or losing based on this deal.
         By assumption unplayed1 >= unplayed2 >= unplayed3
         """
+        # do not know how to do this yet.
+        pass
     @cache
     def first_trick_follower_unconditional_value(self, pw_tup):
         """
@@ -485,6 +506,7 @@ class PutOptimalStrategy():
         firfd = self.first_trick_follower_decision(pw_tup=pw_tup)
         deck = self.__rules.deck
         firfuv = {}
+        # 2FIX: this should return pwin and plose of this deal ...
         for myun1, myun2, myun3, ignore_wt, tail_urn in deck.perm_k(k=3):
             if (myun1 < myun2) or (myun2 < myun3):
                 continue
@@ -492,8 +514,8 @@ class PutOptimalStrategy():
             deno = 0
             for thun1, thun2, thun3, wt, _ in tail_urn.perm_k(k=3):
                 sord = tuple(sorted([thun1, thun2, thun3], reverse=True))
-                _, thpl1 = firld[sord]
-                this_pwin, _ = firfd[(myun1, myun2, myun3, thpl1)]
+                thpl1, _, _, _ = firld[sord]
+                _, this_pwin, _, _ = firfd[(myun1, myun2, myun3, thpl1)]
                 deno += wt
                 numr_win += wt * this_pwin
             # need to add the pcon_win_con_tie part here...
@@ -517,7 +539,7 @@ class PutOptimalStrategy():
         canonical way to sink to csv.
         """
         firld = self.first_trick_leader_decision(pw_tup=pw_tup)
-        self._save_something(outfile=outfile, header_row=['card1','card2','card3','pwin','to_play'], save_dict=firld)
+        self._save_something(outfile=outfile, header_row=['card1','card2','card3','to_play','pwin_match','pwin_deal','plose_deal'], save_dict=firld)
 
     def save_first_trick_follower_unconditional_value(self, outfile, pw_tup, flip_sense:bool = True):
         """
@@ -545,7 +567,7 @@ class PutOptimalStrategy():
         if flip_sense:
             pw_tup = self._opponent_tup(pw_tup)
         firfd = self.first_trick_follower_decision(pw_tup=pw_tup)
-        self._save_something(outfile=outfile, header_row=['card1','card2','card3','opponent_card','pwin','to_play'], save_dict=firfd)
+        self._save_something(outfile=outfile, header_row=['card1','card2','card3','opponent_card','to_play','pwin_match','pwin_deal','plose_deal'], save_dict=firfd)
 
     def save_second_trick_leader_decision(self, outfile, pw_tup, flip_sense:bool = False):
         """
@@ -559,7 +581,7 @@ class PutOptimalStrategy():
         if flip_sense:
             pw_tup = self._opponent_tup(pw_tup)
         secld = self.second_trick_leader_decision(pw_tup)
-        self._save_something(outfile=outfile, header_row=['card1','card2','myplayed1','theirplayed1','pwin','to_play'], save_dict=secld)
+        self._save_something(outfile=outfile, header_row=['card1','card2','myplayed1','theirplayed1','to_play','pwin_match','pwin_deal','plose_deal'], save_dict=secld)
 
     def save_second_trick_follower_decision(self, outfile, pw_tup, flip_sense:bool = True):
         """
@@ -573,12 +595,12 @@ class PutOptimalStrategy():
         if flip_sense:
             pw_tup = self._opponent_tup(pw_tup)
         secfd = self.second_trick_follower_decision(pw_tup)
-        self._save_something(outfile=outfile, header_row=['card1','card2','myplayed1','theirplayed1','theirplayed2','pwin','to_play'], save_dict=secfd)
+        self._save_something(outfile=outfile, header_row=['card1','card2','myplayed1','theirplayed1','theirplayed2','to_play','pwin_match','pwin_deal','plose_deal'], save_dict=secfd)
 
     @cache
     def prob_win(self, pw_tup):
         """
-        computes the probability that I will win, unconditional of the cards dealt, given that I lead this trick,
+        computes the probability that I will win the match, unconditional of the cards dealt, given that I lead this trick,
         and we have the given conditional probabilities of winning given the outcome of this deal.
         """
         firld = self.first_trick_leader_decision(pw_tup)
@@ -588,7 +610,7 @@ class PutOptimalStrategy():
         for myun1, myun2, myun3, wt, _ in deck.perm_k(k=3):
             mykey = tuple(sorted([myun1, myun2, myun3], reverse=True))
             deno += wt
-            numr_win += wt * firld[mykey][0]
+            numr_win += wt * firld[mykey][1]
         return numr_win / deno
     def iterate_tie_pwin(self, pw_start, max_iter=50, min_diff=1e-7, verbosity=0):
         """
@@ -635,16 +657,16 @@ pr = PutRules(deck=lil_deck, joker_func=lambda x:False)
 
 pi_prev = 0.75
 pi_prev = 0.4561
-pi_prev = 0.45615813006413264
+pi_prev = 0.4561581300641355
 agoo = PutOptimalStrategy(pr)
 pw_next = agoo.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-13)
-zedy = agoo.first_trick_leader_decision(pw_next)
-
+print(f"pi_prev = {1 - pw_next[1]}")
 
 agoo.save_first_trick_leader_decision("/tmp/putfoo_000.csv", pw_next)
 agoo.save_first_trick_follower_unconditional_value("/tmp/putfoo_001.csv", pw_next)
 agoo.save_first_trick_follower_decision("/tmp/putfoo_002.csv", pw_next)
 agoo.save_second_trick_leader_decision("/tmp/putfoo_003.csv", pw_next)
+agoo.save_second_trick_follower_decision("/tmp/putfoo_004.csv", pw_next)
 
 # try a bigger deck.
 mid_deck = Urn(Counter({k:4 for k in range(10)}))
@@ -652,9 +674,9 @@ pr = PutRules(deck=mid_deck, joker_func=lambda x:False)
 
 # for 10 card deck:
 afoo = PutOptimalStrategy(pr)
-pi_prev = 0.45321120559804773
-pw_next = afoo.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-13)
-1 - pw_next[1]
+pi_prev = 0.4532112055980586
+pw_next = afoo.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-16)
+print(f"pi_prev = {1 - pw_next[1]}")
 
 afoo.save_first_trick_leader_decision("/tmp/putfoo_000.csv", pw_next)
 afoo.save_first_trick_follower_unconditional_value("/tmp/putfoo_001.csv", pw_next)
@@ -662,21 +684,23 @@ afoo.save_first_trick_follower_decision("/tmp/putfoo_002.csv", pw_next)
 afoo.save_second_trick_leader_decision("/tmp/putfoo_003.csv", pw_next)
 afoo.save_second_trick_follower_decision("/tmp/putfoo_004.csv", pw_next)
 
+# for 10 card deck plus 2 jokers
+pi_prev = 0.47570996176217173
 
 # try little deck plus 2 jokers
 lil_deck = Urn(Counter({k:(4 if k < 6 else 2) for k in range(7)}))
 pr = PutRules(deck=lil_deck, joker_func=lambda x:x==6)
 
-# for 10 card deck:
-pi_prev = 0.47570996176217173
+pi_prev = 0.4656034904818125
 abar = PutOptimalStrategy(pr)
-pw_next = abar.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-13)
-1 - pw_next[1]
+pw_next = abar.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-16)
+print(f"pi_prev = {1 - pw_next[1]}")
 
 abar.save_first_trick_leader_decision("/tmp/putfoo_000.csv", pw_next)
 abar.save_first_trick_follower_unconditional_value("/tmp/putfoo_001.csv", pw_next)
 abar.save_first_trick_follower_decision("/tmp/putfoo_002.csv", pw_next)
 abar.save_second_trick_leader_decision("/tmp/putfoo_003.csv", pw_next)
+abar.save_second_trick_follower_decision("/tmp/putfoo_004.csv", pw_next)
 
 
 """
