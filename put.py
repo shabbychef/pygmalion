@@ -40,6 +40,35 @@ from collections import Counter
 from enum import Enum, IntEnum, auto
 from functools import total_ordering
 import csv
+import rootfind
+
+def root_polish(f, x0, y0=None, ytol=1e-15, **kwargs):
+    """
+    seeks to find a solution to
+    f(x) = 1 - x
+    where 0 < f(x) < 1 for x in [0, 1]
+    and f(x) is an increasing function.
+    Does the following:
+    1 if abs(f(x0) + x0 - 1) < ytol, just return x0
+    2 otherwise call the illinois method.
+    """
+    iter = 0
+    if y0 is None:
+        y0 = f(x0)
+        iter += 1
+        if verbosity > 0:
+            print(f"{iter}: {x0}, {y0 + x0 - 1}")
+    if abs(y0 + x0 - 1) < ytol:
+        return x0
+    else:
+        gx = lambda x: f(x) + x - 1
+        if y0 < 1 - x0:
+            a, fa, b, fb = (x0, y0 + x0 - 1, 1, None)
+        else:
+            a, fa, b, fb = (0, None, x0, y0 + x0 - 1)
+        return rootfind.illinois_method(f=gx, a=a, b=b, fa=fa, fb=fb, ytol=ytol, **kwargs)
+
+
 
 """
 master_deck = Urn(Counter({k:4 for k in range(13)}) + Counter({13:2}))
@@ -616,62 +645,9 @@ class PutOptimalStrategy():
         """
         iteratively update the middle value of pw_tup
         """
-        pw_prev = pw_start
-        iter = 0
-        converged = False
-        while not converged:
-            pi_next = self.prob_win(pw_tup=pw_prev)
-            pw_next = (pw_prev[0], 1-pi_next, pw_prev[2])
-            pw_diff = pw_prev[1] - pw_next[1]
-            iter = iter + 1
-            converged = (iter >= max_iter) or abs(pw_diff) < min_diff
-            pw_prev = pw_next
-            if verbosity > 0:
-                print(f"{iter=}; {pw_diff=}")
-        return pw_next
-    def iterate_tie_pwin_secant(self, pw_start, max_iter=50, min_diff=1e-7, verbosity=0):
-        """
-        uses the secant method to 
-        iteratively update the middle value of pw_tup
-        """
-        xm2 = pw_start[1]
-        pw_prev = pw_start
-        iter = 0
-        pi_next = self.prob_win(pw_tup=pw_prev)
-        ym2 = 1 - pi_next
-        pw_next = (pw_prev[0], ym2, pw_prev[2])
-        pw_diff = pw_prev[1] - pw_next[1]
-        iter = iter + 1
-        converged = (iter >= max_iter) or abs(pw_diff) < min_diff
-        if verbosity > 0:
-            print(f"{iter=}; {pw_diff=}")
-        if not converged:
-            pw_prev = pw_next
-            xm1 = ym2
-            pi_next = self.prob_win(pw_tup=pw_prev)
-            ym1 = 1 - pi_next
-            pw_diff = ym1 - ym2
-            iter = iter + 1
-            converged = (iter >= max_iter) or abs(pw_diff) < min_diff
-            if verbosity > 0:
-                print(f"{iter=}; {pw_diff=}")
-        while not converged:
-            x0 = xm1 - (ym1 - xm1) * (xm1 - xm2) / (ym1 - xm1 - ym2 + xm2)
-            pw_next = (pw_prev[0], ym1, pw_prev[2])
-            pi_next = self.prob_win(pw_tup=pw_next)
-            y0 = 1 - pi_next
-            pw_diff = y0 - ym1
-            iter = iter + 1
-            xm2 = xm1
-            ym2 = ym1
-            xm1 = x0
-            ym1 = y0
-            converged = (iter >= max_iter) or abs(pw_diff) < min_diff
-            if verbosity > 0:
-                print(f"{iter=}; {pw_diff=}")
-        pw_next = (pw_prev[0], y0, pw_prev[2])
-        return pw_next
-
+        ffunc = lambda x: self.prob_win(pw_tup=(pw_start[0], x, pw_start[2]))
+        x1 = root_polish(ffunc, pw_start[1], ytol=min_diff, xtol=min_diff, max_iter=max_iter, verbosity=verbosity)
+        return (pw_start[0], x1, pw_start[2])
 
 
 """
@@ -703,7 +679,6 @@ pi_prev = 0.4561581300641355
 pi_prev = 0.75
 agoo = PutOptimalStrategy(pr)
 pw_next = agoo.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-13)
-pw_next = agoo.iterate_tie_pwin_secant((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-13)
 print(f"pi_prev = {1 - pw_next[1]}")
 
 agoo.save_first_trick_leader_decision("/tmp/putfoo_000.csv", pw_next)
@@ -764,6 +739,21 @@ afoo.save_first_trick_follower_decision("/tmp/put_fulldeck_002.csv", pw_next)
 afoo.save_second_trick_leader_decision("/tmp/put_fulldeck_003.csv", pw_next)
 afoo.save_second_trick_follower_decision("/tmp/put_fulldeck_004.csv", pw_next)
 
+# full size deck, two jokers
+fulj_deck = Urn(Counter({k:(4 if k < 13 else 2) for k in range(14)}))
+pr = PutRules(deck=fulj_deck, joker_func=lambda x:False)
+
+# for 13 card deck, with jokers?
+afoo = PutOptimalStrategy(pr)
+pi_prev = 0.45199056202682375
+pw_next = afoo.iterate_tie_pwin((1, 1-pi_prev, 0), verbosity=1, min_diff=1e-16)
+print(f"pi_prev = {1 - pw_next[1]}")
+
+afoo.save_first_trick_leader_decision("/tmp/put_fulldeck_jk_000.csv", pw_next)
+afoo.save_first_trick_follower_unconditional_value("/tmp/put_fulldeck_jk_001.csv", pw_next)
+afoo.save_first_trick_follower_decision("/tmp/put_fulldeck_jk_002.csv", pw_next)
+afoo.save_second_trick_leader_decision("/tmp/put_fulldeck_jk_003.csv", pw_next)
+afoo.save_second_trick_follower_decision("/tmp/put_fulldeck_jk_004.csv", pw_next)
 
 """
 
